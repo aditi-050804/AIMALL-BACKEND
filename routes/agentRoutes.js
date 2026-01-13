@@ -1,4 +1,5 @@
 import express from 'express'
+import mongoose from 'mongoose'
 import agentModel from '../models/Agents.js'
 import userModel from "../models/User.js"
 import notificationModel from "../models/Notification.js"
@@ -310,10 +311,20 @@ route.patch('/:id/reactivate', verifyToken, async (req, res) => {
 
 // Approve (Admin)
 route.post('/approve/:id', verifyToken, async (req, res) => {
+  const { id } = req.params;
+  console.log(`[APPROVE REQUEST] App ID: ${id} by User: ${req.user.id}`);
+
   try {
-    // Check Admin Role
+    // 1. Validate ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      console.error(`[APPROVE ERROR] Invalid Agent ID: ${id}`);
+      return res.status(400).json({ error: "Invalid Agent ID format." });
+    }
+
+    // 2. Check Admin Role
     const adminUser = await userModel.findById(req.user.id);
-    if (adminUser?.role !== 'admin') {
+    if (!adminUser || adminUser.role !== 'admin') {
+      console.error(`[APPROVE ERROR] Unauthorized. User ${req.user.id} is not an admin.`);
       return res.status(403).json({ error: "Access Denied. Admins only." });
     }
 
@@ -329,40 +340,59 @@ route.post('/approve/:id', verifyToken, async (req, res) => {
     }
 
     const agent = await agentModel.findByIdAndUpdate(
-      req.params.id,
+      id,
       updateData,
       { new: true }
     );
 
-    if (agent && agent.owner) {
-      // 1. Notify Vendor
-      await notificationModel.create({
-        userId: agent.owner,
-        message: `Time to celebrate! '${agent.agentName}' has been approved and is now live on the AI Mall Marketplace.${message ? ' Note: ' + message : ''}`,
-        type: 'success',
-        role: 'vendor',
-        targetId: agent._id
-      });
+    if (!agent) {
+      console.error(`[APPROVE ERROR] Agent not found: ${id}`);
+      return res.status(404).json({ error: "Agent not found." });
+    }
 
-      // 2. Notify All Users (Marketplace Update)
-      // Broadcast to everyone (Admins, Vendors, Users) so they all see the new app
-      const allUsers = await userModel.find({}).select('_id');
-      const notifications = allUsers.map(u => ({
-        userId: u._id,
-        message: `New Arrival: '${agent.agentName}' is now available in the marketplace. Check it out!`,
-        type: 'info',
-        role: 'user',
-        targetId: agent._id
-      }));
+    console.log(`[APPROVE SUCCESS] Updated Agent '${agent.agentName}' status to Live.`);
 
-      if (notifications.length > 0) {
-        await notificationModel.insertMany(notifications);
+    // 3. Handle Notifications (Non-blocking if possible, but for now we wait)
+    if (agent.owner) {
+      try {
+        // Notify Vendor
+        await notificationModel.create({
+          userId: agent.owner,
+          message: `Time to celebrate! '${agent.agentName}' has been approved and is now live on the AI Mall Marketplace.${message ? ' Note: ' + message : ''}`,
+          type: 'success',
+          role: 'vendor',
+          targetId: agent._id
+        });
+        console.log(`[APPROVE NOTIFY] Notified Vendor ${agent.owner}`);
+
+        // Notify All Users (Marketplace Update)
+        const allUsers = await userModel.find({}).select('_id');
+        if (allUsers.length > 0) {
+          const notifications = allUsers.map(u => ({
+            userId: u._id,
+            message: `New Arrival: '${agent.agentName}' is now available in the marketplace. Check it out!`,
+            type: 'info',
+            role: 'user',
+            targetId: agent._id
+          }));
+
+          // Batch insert in chunks if too many users
+          const chunkSize = 100;
+          for (let i = 0; i < notifications.length; i += chunkSize) {
+            const chunk = notifications.slice(i, i + chunkSize);
+            await notificationModel.insertMany(chunk);
+          }
+          console.log(`[APPROVE NOTIFY] Broadcasted to ${notifications.length} users.`);
+        }
+      } catch (notifyErr) {
+        console.error('[APPROVE NOTIFY ERROR]', notifyErr);
+        // We don't fail the whole request just because notifications failed
       }
     }
 
     res.json(agent);
   } catch (err) {
-    console.error('[APPROVE ERROR]', err);
+    console.error('[APPROVE CRITICAL ERROR]', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -405,13 +435,34 @@ route.post('/reject/:id', verifyToken, async (req, res) => {
 // Get agent details with usage stats (for vendor dashboard)
 route.get('/:id/details', verifyToken, async (req, res) => {
   try {
-    const agent = await agentModel.findById(req.params.id);
+    const { id } = req.params;
+    console.log(`[AGENT DETAILS] Fetching details for ID: ${id} requested by User: ${req.user.id}`);
+
+    // Validate ID format to prevent CastErrors
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      console.warn(`[AGENT DETAILS] Invalid ObjectId format: ${id}`);
+      return res.status(400).json({ error: "Invalid Agent ID format" });
+    }
+
+    const agent = await agentModel.findById(id);
     if (!agent) {
+      console.warn(`[AGENT DETAILS] Agent not found: ${id}`);
       return res.status(404).json({ error: "Agent not found" });
     }
 
+    if (agent.isDeleted) {
+      console.warn(`[AGENT DETAILS] Agent is marked as deleted: ${id}`);
+      return res.status(404).json({ error: "Agent has been removed" });
+    }
+
     // Get usage statistics from transactions
-    const transactions = await transactionModel.find({ agentId: req.params.id });
+    let transactions = [];
+    try {
+      transactions = await transactionModel.find({ agentId: id });
+    } catch (dbErr) {
+      console.error(`[AGENT DETAILS] DB Error fetching transactions for ${id}:`, dbErr);
+      // Continue without transactions rather than crashing
+    }
 
     // Calculate plan-wise breakdown
     const planCounts = {
@@ -423,7 +474,9 @@ route.get('/:id/details', verifyToken, async (req, res) => {
     // Get unique users
     const uniqueUsers = new Set();
     transactions.forEach(t => {
-      uniqueUsers.add(t.buyerId?.toString());
+      if (t.buyerId) {
+        uniqueUsers.add(t.buyerId.toString());
+      }
     });
 
     // Convert to array format for frontend
@@ -436,16 +489,17 @@ route.get('/:id/details', verifyToken, async (req, res) => {
     const usage = {
       totalUsers: uniqueUsers.size,
       planBreakdown,
-      recentActivity: [] // Can be populated with actual activity data
+      recentActivity: []
     };
 
+    console.log(`[AGENT DETAILS] Success for ${id}. Users found: ${uniqueUsers.size}`);
     res.json({
       agent,
       usage
     });
   } catch (err) {
-    console.error('[AGENT DETAILS ERROR]', err);
-    res.status(500).json({ error: "Failed to fetch agent details" });
+    console.error('[AGENT DETAILS ERROR] Fatal:', err);
+    res.status(500).json({ error: "Failed to fetch agent details", details: err.message });
   }
 });
 

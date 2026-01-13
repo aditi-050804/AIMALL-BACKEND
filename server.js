@@ -11,6 +11,7 @@ import emailVatifiation from "./routes/emailVerification.js"
 import cookieParser from "cookie-parser";
 import vendorOnboardingRoutes from "./routes/vendorOnboardingRoutes.js";
 import messageRoutes from "./routes/messageRoutes.js";
+import dashboardMessageRoutes from "./routes/dashboardMessageRoutes.js";
 // Vendor Routes (Moved to bottom)
 import userRoute from './routes/user.js'
 
@@ -81,6 +82,7 @@ app.use("/api/email_varification", emailVatifiation)
 // Vendor Routes
 app.use('/api/vendor', vendorOnboardingRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/dashboard-messages', dashboardMessageRoutes);
 
 // Dashboard/General Routes: /api/dashboard/stats, /api/automations, /api/admin/settings
 app.use('/api', dashboardRoutes);

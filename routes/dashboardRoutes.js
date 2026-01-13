@@ -114,7 +114,8 @@ router.get('/admin/stats', async (req, res) => {
         status: a.status || 'inactive',
         reviewStatus: a.reviewStatus || 'Draft',
         avatar: a.avatar || '/AGENTS_IMG/default.png',
-        usageCount: usageMap[a._id.toString()] || 0
+        usageCount: usageMap[a._id.toString()] || 0,
+        deletionStatus: a.deletionStatus || 'None'
       }))
     });
   } catch (err) {

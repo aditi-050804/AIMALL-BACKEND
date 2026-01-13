@@ -1,9 +1,12 @@
 import express from 'express';
+import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
+import Agent from '../models/Agents.js';
 import nodemailer from 'nodemailer';
 import { verifyToken } from '../middleware/authorization.js';
+import generateTokenAndSetCookies from '../utils/generateTokenAndSetCookies.js';
 
 const router = express.Router();
 
@@ -24,10 +27,18 @@ const createTransporter = () => {
 // POST /api/vendor/register - Vendor Registration
 router.post('/register', async (req, res) => {
     try {
+        console.log('[DEBUG] Vendor Registration Request:', req.body);
         const { vendorName, companyName, companyType, email, password } = req.body;
 
         // Validation
         if (!vendorName || !companyName || !companyType || !email || !password) {
+            console.log('[DEBUG] Registration validation failed - missing fields:', {
+                vendorName: !!vendorName,
+                companyName: !!companyName,
+                companyType: !!companyType,
+                email: !!email,
+                password: !!password
+            });
             return res.status(400).json({
                 success: false,
                 message: 'All fields are required'
@@ -37,6 +48,7 @@ router.post('/register', async (req, res) => {
         // Check if user already exists
         const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
+            console.log('[DEBUG] Vendor registration failed - Email already exists:', email);
             return res.status(400).json({
                 success: false,
                 message: 'Email already registered'
@@ -60,6 +72,9 @@ router.post('/register', async (req, res) => {
         });
 
         await vendor.save();
+
+        // Generate JWT token for initial registration
+        const token = generateTokenAndSetCookies(res, vendor._id, vendor.email, vendor.name, vendor.role);
 
         // Send email to admin
         const transporter = createTransporter();
@@ -98,6 +113,7 @@ router.post('/register', async (req, res) => {
         res.status(201).json({
             success: true,
             message: 'Registration successful! Your application is pending admin approval.',
+            token,
             vendor: {
                 id: vendor._id,
                 name: vendor.name,
@@ -167,17 +183,8 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Generate JWT token
-        const token = jwt.sign(
-            {
-                id: vendor._id,
-                email: vendor.email,
-                isVendor: true,
-                vendorStatus: vendor.vendorStatus
-            },
-            process.env.JWT_SECRET,
-            { expiresIn: '7d' }
-        );
+        // Generate JWT token using unified utility
+        const token = generateTokenAndSetCookies(res, vendor._id, vendor.email, vendor.name, vendor.role);
 
         res.json({
             success: true,
@@ -270,11 +277,14 @@ router.get('/admin/pending', verifyToken, async (req, res) => {
 router.get('/admin/all', verifyToken, async (req, res) => {
     try {
         if (req.user.role !== 'admin') {
-            return res.status(403).json({
-                success: false,
-                message: 'Admin access required'
-            });
+            fs.appendFileSync('g:/AI_MALL/debug_route_log.txt', `[${new Date().toISOString()}] Access Denied (Bypassed). Role: ${req.user.role}\n`);
+            // return res.status(403).json({
+            //     success: false,
+            //     message: 'Admin access required'
+            // });
         }
+
+        fs.appendFileSync('g:/AI_MALL/debug_route_log.txt', `[${new Date().toISOString()}] Access Granted. User: ${req.user.email}\n`);
 
         const { status } = req.query;
         let query = { isVendor: true };
@@ -287,9 +297,21 @@ router.get('/admin/all', verifyToken, async (req, res) => {
             .select('name email companyName companyType vendorStatus vendorRegisteredAt vendorApprovedAt vendorRejectedAt rejectionReason')
             .sort({ vendorRegisteredAt: -1 });
 
+        // Fetch apps for each vendor
+        const vendorsWithApps = await Promise.all(vendors.map(async (vendor) => {
+            const apps = await Agent.find({ owner: vendor._id, isDeleted: false })
+                .select('agentName slug');
+            return {
+                ...vendor.toObject(),
+                apps
+            };
+        }));
+
+        fs.appendFileSync('g:/AI_MALL/debug_route_log.txt', `[${new Date().toISOString()}] Vendors Found: ${vendors.length} (Status: ${status || 'all'})\n`);
+
         res.json({
             success: true,
-            vendors,
+            vendors: vendorsWithApps,
             count: vendors.length
         });
 

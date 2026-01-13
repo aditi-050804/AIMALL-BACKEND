@@ -44,7 +44,7 @@ router.post("/signup", async (req, res) => {
     });
 
     // Generate token cookie
-    const token = generateTokenAndSetCookies(res, newUser._id, newUser.email, newUser.name);
+    const token = generateTokenAndSetCookies(res, newUser._id, newUser.email, newUser.name, newUser.role);
 
 
     // Send OTP email
@@ -81,7 +81,7 @@ router.post("/login", async (req, res) => {
     }
 
     // Generate token
-    const token = generateTokenAndSetCookies(res, user._id, user.email, user.name);
+    const token = generateTokenAndSetCookies(res, user._id, user.email, user.name, user.role);
 
     res.status(201).json({
       id: user._id,
