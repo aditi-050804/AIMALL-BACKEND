@@ -27,6 +27,7 @@ export const verifyToken = async (req, res, next) => {
 
         // Merge decoded user with fresh DB data (DB takes precedence for role)
         req.user = { ...decoded, ...user.toObject(), role: user.role };
+        console.log(`[AUTH DEBUG] Token verified for: ${req.user.email} (Role: ${req.user.role})`);
 
         next();
     } catch (error) {

@@ -202,3 +202,90 @@ export const sendVendorContactEmail = async ({ vendorEmail, vendorName, userName
         return { success: false, message: error.message };
     }
 };
+
+// Send approval email to vendor
+export const sendVendorApprovalEmail = async (vendor) => {
+    const transporter = createTransporter();
+    if (!transporter) return { success: false, message: 'Email service not configured' };
+
+    const mailOptions = {
+        from: EMAIL_CONFIG.user,
+        to: vendor.email,
+        subject: 'Welcome to AI-MALL - Vendor Account Approved! 🎉',
+        html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #10b981;">Congratulations ${vendor.name}!</h2>
+                <p style="font-size: 16px;">Your vendor account has been approved.</p>
+                
+                <div style="background: linear-gradient(135deg, #8b5cf6, #d946ef); padding: 30px; border-radius: 12px; margin: 30px 0; text-align: center;">
+                    <h3 style="color: white; margin: 0 0 15px 0;">You can now:</h3>
+                    <ul style="color: white; text-align: left; list-style: none; padding: 0;">
+                        <li style="margin: 10px 0;">✅ Login to your vendor dashboard</li>
+                        <li style="margin: 10px 0;">✅ Create and manage AI agents</li>
+                        <li style="margin: 10px 0;">✅ Track revenue and analytics</li>
+                        <li style="margin: 10px 0;">✅ Access vendor support</li>
+                    </ul>
+                </div>
+                
+                <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/vendor-login" 
+                   style="display: inline-block; background: #8b5cf6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                    Login to Dashboard
+                </a>
+                
+                <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
+                    Welcome to the AI-MALL vendor community!
+                </p>
+            </div>
+        `
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        return { success: true };
+    } catch (error) {
+        console.error('[EMAIL SERVICE] Failed to send approval email:', error);
+        return { success: false, error };
+    }
+};
+
+// Send rejection email to vendor
+export const sendVendorRejectionEmail = async (vendor, reason) => {
+    const transporter = createTransporter();
+    if (!transporter) return { success: false, message: 'Email service not configured' };
+
+    const mailOptions = {
+        from: EMAIL_CONFIG.user,
+        to: vendor.email,
+        subject: 'AI-MALL Vendor Application Update',
+        html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #6b7280;">Vendor Application Status</h2>
+                <p>Dear ${vendor.name},</p>
+                <p>Thank you for your interest in becoming an AI-MALL vendor.</p>
+                
+                <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 20px; margin: 20px 0;">
+                    <p style="margin: 0;"><strong>Unfortunately, we cannot approve your application at this time.</strong></p>
+                </div>
+                
+                <div style="background: #f9fafb; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <p style="margin: 0;"><strong>Reason:</strong></p>
+                    <p style="margin: 10px 0 0 0; color: #374151;">${reason}</p>
+                </div>
+                
+                <p>You may reapply after addressing the concerns mentioned above.</p>
+                
+                <p style="color: #6b7280; font-size: 14px; margin-top: 30px;">
+                    If you have any questions, please contact our support team.
+                </p>
+            </div>
+        `
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        return { success: true };
+    } catch (error) {
+        console.error('[EMAIL SERVICE] Failed to send rejection email:', error);
+        return { success: false, error };
+    }
+};

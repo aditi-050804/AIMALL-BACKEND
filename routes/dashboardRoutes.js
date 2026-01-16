@@ -7,11 +7,10 @@ import Transaction from "../models/Transaction.js";
 import Notification from "../models/Notification.js";
 import Settings from "../models/Settings.js";
 import { updateRateLimit } from "../middleware/dynamicRateLimiter.js";
-import { isAdmin } from "../middleware/isAdmin.js";
-import { verifyToken } from "../middleware/authorization.js";
 const router = express.Router();
 
-// Dashboard Stats (General/User view)
+// Dashboard Stats
+// Matched to frontend: /api/dashboard/stats
 router.get('/dashboard/stats', async (req, res) => {
   try {
     const sessionCount = await ChatSession.countDocuments();
@@ -28,61 +27,9 @@ router.get('/dashboard/stats', async (req, res) => {
   }
 });
 
-// Admin Stats Endpoints (Specification-aligned)
-
-router.get('/admin/stats/users', verifyToken, isAdmin, async (req, res) => {
-  try {
-    const count = await User.countDocuments();
-    const activeCount = await User.countDocuments({ status: 'Active' });
-    res.json({ total: count, active: activeCount });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get('/admin/stats/vendors', verifyToken, isAdmin, async (req, res) => {
-  try {
-    const total = await User.countDocuments({ isVendor: true });
-    const approved = await User.countDocuments({ isVendor: true, vendorStatus: 'approved' });
-    const pending = await User.countDocuments({ isVendor: true, vendorStatus: 'pending' });
-    res.json({ total, approved, pending });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get('/admin/stats/agents', verifyToken, isAdmin, async (req, res) => {
-  try {
-    const total = await Agent.countDocuments();
-    const active = await Agent.countDocuments({ status: { $in: ['Live', 'Active', 'active'] } });
-    const archive = await Agent.countDocuments({ status: 'Archived' });
-    res.json({ total, active, archive });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get('/admin/stats/revenue', verifyToken, isAdmin, async (req, res) => {
-  try {
-    const stats = await Transaction.aggregate([
-      { $match: { status: 'Success' } },
-      {
-        $group: {
-          _id: null,
-          totalRevenue: { $sum: "$amount" },
-          platformFees: { $sum: "$platformFee" },
-          vendorPayouts: { $sum: "$netAmount" }
-        }
-      }
-    ]);
-    res.json(stats[0] || { totalRevenue: 0, platformFees: 0, vendorPayouts: 0 });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Legacy Admin Overview Stats (Optimized)
-router.get('/admin/stats', verifyToken, isAdmin, async (req, res) => {
+// Admin Overview Stats
+// Matched to frontend: /api/admin/stats
+router.get('/admin/stats', async (req, res) => {
   try {
     const [
       totalUsers,
@@ -170,13 +117,8 @@ router.get('/admin/stats', verifyToken, isAdmin, async (req, res) => {
         status: a.status || 'Inactive',
         reviewStatus: a.reviewStatus || 'Draft',
         avatar: a.avatar || '/AGENTS_IMG/default.png',
-<<<<<<< HEAD
-        usageCount: usageMap[a._id.toString()] || 0,
-        deletionStatus: a.deletionStatus || 'None'
-=======
         owner: a.owner,
         usageCount: usageMap[a._id.toString()] || 0
->>>>>>> ad13b78 (admin)
       }))
     });
   } catch (err) {

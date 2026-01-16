@@ -1,5 +1,5 @@
-const { upload } = require('../services/cloudinary.service');
-const logger = require('../utils/logger');
+import { upload } from '../services/cloudinary.service.js';
+import logger from '../utils/logger.js';
 
 const uploadMiddleware = (req, res, next) => {
     const uploader = upload.single('file'); // Expect form field name 'file'
@@ -16,4 +16,4 @@ const uploadMiddleware = (req, res, next) => {
     });
 };
 
-module.exports = uploadMiddleware;
+export default uploadMiddleware;

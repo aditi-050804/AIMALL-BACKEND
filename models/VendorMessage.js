@@ -15,7 +15,7 @@ const vendorMessageSchema = new mongoose.Schema({
     agentId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Agent',
-        required: true,
+        required: false,
         index: true
     },
     userName: {
@@ -49,7 +49,7 @@ const vendorMessageSchema = new mongoose.Schema({
     },
     agentName: {
         type: String,
-        required: true
+        required: false
     },
     vendorEmail: {
         type: String,
@@ -64,8 +64,7 @@ const vendorMessageSchema = new mongoose.Schema({
         type: Date
     },
     senderType: {
-        type: String,
-        enum: ['User', 'Admin'],
+        type: String, // 'User' or 'Admin'
         default: 'User'
     }
 }, {

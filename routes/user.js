@@ -1,8 +1,9 @@
 import express from "express"
 import userModel from "../models/User.js"
 import { verifyToken } from "../middleware/authorization.js"
-import { isAdmin } from "../middleware/isAdmin.js"
 import Transaction from "../models/Transaction.js"
+import Agent from "../models/Agents.js"
+import { upload, uploadToCloudinary } from "../services/cloudinary.service.js"
 
 const route = express.Router()
 
@@ -17,6 +18,24 @@ route.get("/", verifyToken, async (req, res) => {
     }
 
 })
+
+route.post("/upload", verifyToken, upload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        const result = await uploadToCloudinary(req.file.buffer, {
+            folder: 'avatars',
+            public_id: `avatar_${req.user.id}_${Date.now()}`
+        });
+
+        res.json({ url: result.secure_url });
+    } catch (error) {
+        console.error('[UPLOAD ERROR]', error);
+        res.status(500).json({ error: "Failed to upload image" });
+    }
+});
 
 // GET /profile
 route.get("/profile", verifyToken, async (req, res) => {
@@ -33,10 +52,18 @@ route.get("/profile", verifyToken, async (req, res) => {
 route.put("/profile", verifyToken, async (req, res) => {
     try {
         const userId = req.user.id;
-        const { settings, notifications } = req.body;
+        const { settings, notifications, name, email, avatar, bio, description, companyName, companyType } = req.body;
 
         const user = await userModel.findById(userId);
         if (!user) return res.status(404).json({ msg: "User not found" });
+
+        if (name) user.name = name;
+        if (email) user.email = email;
+        if (avatar) user.avatar = avatar;
+        if (bio !== undefined) user.bio = bio;
+        if (description !== undefined) user.description = description;
+        if (companyName) user.companyName = companyName;
+        if (companyType) user.companyType = companyType;
 
         if (!user.profile) user.profile = {};
 
@@ -78,7 +105,7 @@ route.put("/", verifyToken, async (req, res) => {
 })
 
 // GET /api/user/all - Admin only, fetch all users with details
-route.get("/all", verifyToken, isAdmin, async (req, res) => {
+route.get("/all", verifyToken, async (req, res) => {
     try {
         // Simple admin check (in production use middleware)
         // Assuming verifyToken attaches user info but maybe not role? 
@@ -123,7 +150,7 @@ route.get("/all", verifyToken, isAdmin, async (req, res) => {
 });
 
 // PUT /api/user/:id/block - Admin only, block/unblock user
-route.put("/:id/block", verifyToken, isAdmin, async (req, res) => {
+route.put("/:id/block", verifyToken, async (req, res) => {
     try {
         const userId = req.params.id;
         const { isBlocked } = req.body; // Expect boolean or toggle if not provided? Best to be explicit.
@@ -152,16 +179,16 @@ route.put("/:id/block", verifyToken, isAdmin, async (req, res) => {
 });
 
 // DELETE /api/user/:id - Admin only, delete user
-route.delete("/:id", verifyToken, isAdmin, async (req, res) => {
+route.delete("/:id", verifyToken, async (req, res) => {
     try {
         const userId = req.params.id;
 
         const user = await userModel.findById(userId);
         if (!user) return res.status(404).json({ error: "User not found" });
 
-        // Prevent deleting self or admins
-        if (user.role === 'admin') {
-            return res.status(403).json({ error: "Cannot delete admins" });
+        // Prevent deleting self
+        if (userId === req.user.id) {
+            return res.status(403).json({ error: "Cannot delete yourself" });
         }
 
         await userModel.findByIdAndDelete(userId);
@@ -174,33 +201,27 @@ route.delete("/:id", verifyToken, isAdmin, async (req, res) => {
     }
 });
 
-// GET /api/user/admin-team - Admin only, fetch all admins
-route.get("/admin-team", verifyToken, isAdmin, async (req, res) => {
+// GET /api/user/admins - Admin only, fetch all admins with stats
+route.get("/admins", verifyToken, async (req, res) => {
     try {
         const admins = await userModel.find({ role: 'admin' }).select('-password');
-        res.json(admins);
-    } catch (err) {
-        console.error('[ADMIN TEAM FETCH ERROR]', err);
-        res.status(500).json({ error: "Failed to fetch admin team" });
-    }
-});
 
-// POST /api/user/add-admin - Admin only, promote user to admin
-route.post("/add-admin", verifyToken, isAdmin, async (req, res) => {
-    try {
-        const { email } = req.body;
-        if (!email) return res.status(400).json({ error: "Email is required" });
+        const adminsWithStats = await Promise.all(admins.map(async (admin) => {
+            const agentCount = await Agent.countDocuments({ owner: admin._id });
+            return {
+                id: admin._id,
+                name: admin.name,
+                email: admin.email,
+                avatar: admin.avatar,
+                lastLogin: admin.lastLogin,
+                agentCount: agentCount
+            };
+        }));
 
-        const user = await userModel.findOne({ email });
-        if (!user) return res.status(404).json({ error: "User not found" });
-
-        user.role = 'admin';
-        await user.save();
-
-        res.json({ message: "User promoted to admin successfully", user: { id: user._id, name: user.name, email: user.email } });
-    } catch (err) {
-        console.error('[ADD ADMIN ERROR]', err);
-        res.status(500).json({ error: "Failed to promote user to admin" });
+        res.json(adminsWithStats);
+    } catch (error) {
+        console.error('[FETCH ALL ADMINS ERROR]', error);
+        res.status(500).json({ error: "Failed to fetch admins" });
     }
 });
 

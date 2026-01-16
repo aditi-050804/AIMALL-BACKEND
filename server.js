@@ -23,12 +23,18 @@ import revenueRoutes from './routes/revenueRoutes.js';
 import supportRoutes from './routes/supportRoutes.js';
 import supportChatRoutes from './routes/supportChatRoutes.js';
 import vendorChatRoutes from './routes/vendorChatRoutes.js';
-// import aibaseApp from './aibase_module/app.js';
-
+import aibaseApp from './aibase_module/app.js';
 
 dotenv.config();
 const app = express();
-const PORT = process.env.PORT || 5000;
+
+// ULTRA-DEBUG: Log every single request to the server
+app.use((req, res, next) => {
+  console.log(`[GLOBAL DEBUG] ${req.method} ${req.originalUrl}`);
+  next();
+});
+
+const PORT = process.env.PORT || 8080;
 // Connect to Database
 connectDB().then(() => {
   console.log("Database connected, initializing services...");
@@ -61,10 +67,7 @@ app.use('/api', dynamicRateLimiter);
 
 // Mount Routes
 // AIBASE Routes: /api/aibase/chat, /api/aibase/knowledge
-
-
-// AIBASE Routes: /api/aibase/chat, /api/aibase/knowledge
-// app.use('/api/aibase', aibaseApp);
+app.use('/api/aibase', aibaseApp);
 
 //Get user Route
 app.use('/api/user', userRoute)
@@ -84,7 +87,6 @@ app.use("/api/email_varification", emailVatifiation)
 // Vendor Routes
 app.use('/api/vendor', vendorOnboardingRoutes);
 app.use('/api/messages', messageRoutes);
-app.use('/api/dashboard-messages', dashboardMessageRoutes);
 
 // Dashboard/General Routes: /api/dashboard/stats, /api/automations, /api/admin/settings
 app.use('/api', dashboardRoutes);

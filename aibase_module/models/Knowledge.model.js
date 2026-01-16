@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const KnowledgeSchema = new mongoose.Schema({
     filename: {
@@ -26,4 +26,4 @@ const KnowledgeSchema = new mongoose.Schema({
     }
 });
 
-module.exports = mongoose.models.AIBaseKnowledge || mongoose.model('AIBaseKnowledge', KnowledgeSchema);
+export default mongoose.models.AIBaseKnowledge || mongoose.model('AIBaseKnowledge', KnowledgeSchema);

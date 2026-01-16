@@ -6,24 +6,16 @@ import { verifyToken } from '../middleware/authorization.js';
 
 const router = express.Router();
 
+console.log('✅ supportChatRoutes.js loaded successfully!');
+
 // Get or Create a chat session for a user
 router.get('/my-chat', verifyToken, async (req, res) => {
     try {
-        const { chatType } = req.query; // 'user_support' or 'vendor_support'
-        const type = chatType || 'user_support';
-
-        let chat = await SupportChat.findOne({
-            userId: req.user.id,
-            status: 'active',
-            chatType: type
-        });
+        let chat = await SupportChat.findOne({ userId: req.user.id, status: 'active' });
 
         if (!chat) {
-            console.log(`[SupportChat] Creating NEW ${type} session for User: ${req.user.email || req.user.id}`);
-            chat = new SupportChat({
-                userId: req.user.id,
-                chatType: type
-            });
+            console.log(`[SupportChat] Creating NEW session for User: ${req.user.email || req.user.id}`);
+            chat = new SupportChat({ userId: req.user.id });
             await chat.save();
         }
 
@@ -36,8 +28,8 @@ router.get('/my-chat', verifyToken, async (req, res) => {
 
 // Admin: Get all chats (History)
 router.get('/admin/active', verifyToken, async (req, res) => {
-    console.log(`[SupportChat] Admin History request from: ${req.user.email || req.user.id}`);
-    if (req.user.role?.toLowerCase() !== 'admin') {
+    const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+    if (req.user.role?.toLowerCase() !== 'admin' && req.user.email !== adminEmail) {
         return res.status(403).json({ error: 'Unauthorized' });
     }
 
@@ -67,7 +59,10 @@ router.post('/:chatId/message', verifyToken, async (req, res) => {
         if (!chat) return res.status(404).json({ error: 'Chat not found' });
 
         // Security check: Only user or admin can message
-        if (chat.userId.toString() !== req.user.id && req.user.role?.toLowerCase() !== 'admin') {
+        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        const isAdmin = req.user.role?.toLowerCase() === 'admin' || req.user.email === adminEmail;
+
+        if (chat.userId.toString() !== req.user.id && !isAdmin) {
             console.log(`[SupportChat] Unauthorized message attempt by ${req.user.id}`);
             return res.status(403).json({ error: 'Unauthorized' });
         }
@@ -81,8 +76,6 @@ router.post('/:chatId/message', verifyToken, async (req, res) => {
 
         chat.messages.push(newMessage);
         chat.lastMessageAt = new Date();
-
-        const isAdmin = req.user.role?.toLowerCase() === 'admin';
 
         if (isAdmin) {
             chat.adminId = req.user.id;
@@ -104,10 +97,17 @@ router.post('/:chatId/message', verifyToken, async (req, res) => {
                     targetId: chat._id
                 });
                 await notification.save();
+                console.log(`[SupportChat] Notification sent to user: ${chat.userId}`);
             } else {
                 // User sent message -> Notify Admin(s)
                 // Find all admins
-                const admins = await User.find({ role: 'admin' }).select('_id');
+                const admins = await User.find({
+                    $or: [
+                        { role: { $regex: /^admin$/i } },
+                        { email: adminEmail }
+                    ]
+                }).select('_id');
+
                 const notifications = admins.map(admin => ({
                     userId: admin._id,
                     title: 'New Support Inquiry',
@@ -118,11 +118,11 @@ router.post('/:chatId/message', verifyToken, async (req, res) => {
                 }));
                 if (notifications.length > 0) {
                     await Notification.insertMany(notifications);
+                    console.log(`[SupportChat] Notifications sent to ${notifications.length} admins`);
                 }
             }
         } catch (notifErr) {
             console.error("[SupportChat] Notification failed:", notifErr);
-            // Don't fail the request
         }
 
         res.json(chat);
@@ -144,6 +144,49 @@ router.post('/:chatId/close', verifyToken, async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: 'Failed to close chat' });
     }
+});
+
+// Delete all messages from a chat - MOVED BEFORE TEST ENDPOINT
+router.delete('/:chatId/messages', verifyToken, async (req, res) => {
+    console.log('🔥🔥🔥 DELETE ROUTE HIT! ChatId:', req.params.chatId);
+    console.log('🔥 User:', req.user?.id, req.user?.role);
+
+    try {
+        console.log('🔍 Finding chat with ID:', req.params.chatId);
+        const chat = await SupportChat.findById(req.params.chatId);
+        console.log('🔍 Chat found:', !!chat);
+
+        if (!chat) {
+            console.log('❌ Chat NOT found, returning 404');
+            return res.status(404).json({ error: 'Chat not found' });
+        }
+
+        // Security check: Only user or admin can delete messages
+        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        const isAdmin = req.user.role?.toLowerCase() === 'admin' || req.user.email === adminEmail;
+        if (chat.userId.toString() !== req.user.id && !isAdmin) {
+            console.log(`[SupportChat] Unauthorized delete attempt by ${req.user.id}`);
+            return res.status(403).json({ error: 'Unauthorized' });
+        }
+
+        console.log(`✅ [SupportChat] Deleting ${chat.messages.length} messages from Chat ${req.params.chatId} by ${req.user.role} (${req.user.email || req.user.id})`);
+
+        // Clear all messages
+        chat.messages = [];
+        chat.lastMessageAt = new Date();
+        await chat.save();
+
+        console.log(`✅✅✅ [SupportChat] Messages deleted successfully!`);
+        res.json({ message: 'Chat messages deleted successfully', chat });
+    } catch (error) {
+        console.error(`❌ [SupportChat] Delete Messages Error:`, error);
+        res.status(500).json({ error: 'Failed to delete messages' });
+    }
+});
+
+// TEST ENDPOINT - Remove after debugging
+router.get('/test-delete-route', (req, res) => {
+    res.json({ message: 'Support chat routes are working!' });
 });
 
 export default router;

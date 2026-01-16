@@ -16,76 +16,78 @@ const router = express.Router();
 // TEMPORARILY DISABLED - causing 503 errors
 // router.use(checkKillSwitch);
 
-// Get all chat sessions (summary)
-router.post("/", async (req, res) => {
-  const { content, history, systemInstruction } = req.body;
+// Main Chat Interaction Route (Authorized & Persistent)
+router.post("/", verifyToken, async (req, res) => {
+  const { content, history, systemInstruction, sessionId, title } = req.body;
+  const userId = req.user.id;
 
   try {
-    // Construct parts from history + current message
-    let parts = [];
+    // 1. Save User Message to Database first if sessionId is provided
+    let session;
+    if (sessionId) {
+      const userMsg = {
+        role: 'user',
+        content: content,
+        timestamp: Date.now()
+      };
 
-    // Add system instruction if provided (as a user message with high priority or just prepend)
-    // Note: Vertex AI "generateContent" usually takes systemInstruction in config, but for per-request
-    // dynamic behavior with a static model instance, we can prepend it to the prompt.
+      session = await ChatSession.findOneAndUpdate(
+        { sessionId },
+        {
+          $push: { messages: userMsg },
+          $set: { lastModified: Date.now(), ...(title && { title }) }
+        },
+        { new: true, upsert: true }
+      );
+
+      // Link to User if not already linked
+      await userModel.findByIdAndUpdate(
+        userId,
+        { $addToSet: { chatSessions: session._id } }
+      );
+    }
+
+    // 2. Prepare Context for AI
+    let parts = [];
     if (systemInstruction) {
       parts.push({ text: `System Instruction: ${systemInstruction}` });
     }
 
-    // Add conversation history if available
     if (history && Array.isArray(history)) {
       history.forEach(msg => {
         parts.push({ text: `${msg.role === 'user' ? 'User' : 'Model'}: ${msg.content}` });
       });
     }
-
-    // Add current message
     parts.push({ text: `User: ${content}` });
 
-
-    // For Google Generative AI SDK, we pass the parts directly (or a prompt string) as the "contents".
-    // It accepts an array of Content objects, or a simple string/array of parts.
-    // However, since we are sending a single turn of "user" content (that includes history context manually mocked), we just send the parts array wrapped in strict format if needed, or just the parts.
-
-    // Correct usage for single-turn content generation with this SDK
-    // model.generateContentStream([ ...parts ])
-
-    // Construct valid Content object
+    // 3. Generate AI Response
     const contentPayload = { role: "user", parts: parts };
-
     const streamingResult = await generativeModel.generateContentStream({ contents: [contentPayload] });
 
-    // Iterate stream if needed, or await full response
-    for await (const chunk of streamingResult.stream) {
-      // Just consuming stream to ensure completion
-    }
-
+    // We await the full response for saving (can be optimized to stream, but persistence needs full text)
     const finalResponse = await streamingResult.response;
     const reply = finalResponse.text();
 
+    // 4. Save AI Reply to Database
+    if (sessionId) {
+      const aiMsg = {
+        role: 'model',
+        content: reply,
+        timestamp: Date.now()
+      };
+
+      await ChatSession.findOneAndUpdate(
+        { sessionId },
+        {
+          $push: { messages: aiMsg },
+          $set: { lastModified: Date.now() }
+        }
+      );
+    }
+
     return res.status(200).json({ reply });
   } catch (err) {
-    const fs = await import('fs');
-    try {
-      const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-      const logData = `
-Timestamp: ${new Date().toISOString()}
-Error: ${err.message}
-Code: ${err.code}
-Env Project: ${process.env.GCP_PROJECT_ID}
-Env Creds Path: '${credPath}'
-Creds File Exists: ${credPath ? fs.existsSync(credPath) : 'N/A'}
-Stack: ${err.stack}
--------------------------------------------
-`;
-      fs.appendFileSync('error.log', logData);
-    } catch (e) { console.error("Log error:", e); }
-
-    console.error("AISA backend error details:", {
-      message: err.message,
-      stack: err.stack,
-      code: err.code,
-      details: err.details || err.response?.data
-    });
+    console.error("Chat Persistence Error:", err);
     return res.status(500).json({ error: "AI failed to respond", details: err.message });
   }
 });

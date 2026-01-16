@@ -1,8 +1,8 @@
-const cloudinary = require('cloudinary').v2;
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const multer = require('multer');
-const env = require('../config/env');
-const logger = require('../utils/logger');
+import { v2 as cloudinary } from 'cloudinary';
+import multer from 'multer';
+import * as env from '../config/env.js';
+import logger from '../utils/logger.js';
+import stream from 'stream';
 
 // Configure Cloudinary
 cloudinary.config({
@@ -13,16 +13,15 @@ cloudinary.config({
 
 logger.info(`[Cloudinary] Initialized with Cloud Name: ${env.CLOUDINARY.CLOUD_NAME}`);
 
-// Configure Multer Storage (Direct stream to Cloudinary)
 // Configure Multer Storage (Memory Storage)
 const storage = multer.memoryStorage();
 
-const upload = multer({
+export const upload = multer({
     storage: storage,
     limits: { fileSize: 50 * 1024 * 1024 } // 50 MB limit
 });
 
-const uploadToCloudinary = (fileBuffer, options = {}) => {
+export const uploadToCloudinary = (fileBuffer, options = {}) => {
     return new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
             {
@@ -35,14 +34,13 @@ const uploadToCloudinary = (fileBuffer, options = {}) => {
                 resolve(result);
             }
         );
-        const stream = require('stream');
         const bufferStream = new stream.PassThrough();
         bufferStream.end(fileBuffer);
         bufferStream.pipe(uploadStream);
     });
 };
 
-const uploadFileToCloudinary = (filePath, options = {}) => {
+export const uploadFileToCloudinary = (filePath, options = {}) => {
     return cloudinary.uploader.upload(filePath, {
         folder: 'aibase_uploads',
         resource_type: 'auto',
@@ -50,4 +48,4 @@ const uploadFileToCloudinary = (filePath, options = {}) => {
     });
 };
 
-module.exports = { cloudinary, upload, uploadToCloudinary, uploadFileToCloudinary };
+export { cloudinary };

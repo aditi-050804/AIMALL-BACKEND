@@ -1,20 +1,25 @@
-const fs = require('fs');
-const logger = require('../utils/logger');
-const path = require('path');
-const os = require('os');
-const stream = require('stream');
-const util = require('util');
-const pdf = require('pdf-parse');
-const Knowledge = require('../models/Knowledge.model');
-const aiService = require('../services/ai.service');
-const axios = require('axios');
+import fs from 'fs';
+import logger from '../utils/logger.js';
+import path from 'path';
+import os from 'os';
+import stream from 'stream';
+import util from 'util';
+import pdf from 'pdf-parse';
+import Knowledge from '../models/Knowledge.model.js';
+import * as aiService from '../services/ai.service.js';
+import axios from 'axios';
+import mammoth from 'mammoth';
+import xlsx from 'xlsx';
+import officeParser from 'officeparser';
+import Tesseract from 'tesseract.js';
+import { uploadToCloudinary, uploadFileToCloudinary } from '../services/cloudinary.service.js';
+
 const pipeline = util.promisify(stream.pipeline);
-const { uploadToCloudinary, uploadFileToCloudinary } = require('../services/cloudinary.service');
 
 // @desc    Upload a document
 // @route   POST /api/knowledge/upload
 // @access  Public
-exports.uploadDocument = async (req, res) => {
+export const uploadDocument = async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ success: false, message: 'No file uploaded' });
@@ -42,7 +47,6 @@ exports.uploadDocument = async (req, res) => {
             }
         } else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
             try {
-                const mammoth = require('mammoth');
                 const result = await mammoth.extractRawText({ buffer: uploadedFile.buffer });
                 textContent = result.value;
                 logger.info(`Parsed DOCX: ${textContent.length} chars.`);
@@ -52,7 +56,6 @@ exports.uploadDocument = async (req, res) => {
             }
         } else if (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
             try {
-                const xlsx = require('xlsx');
                 const workbook = xlsx.read(uploadedFile.buffer, { type: 'buffer' });
                 textContent = workbook.SheetNames.map(name => {
                     return xlsx.utils.sheet_to_text(workbook.Sheets[name]);
@@ -64,7 +67,6 @@ exports.uploadDocument = async (req, res) => {
             }
         } else if (mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
             try {
-                const officeParser = require('officeparser');
                 textContent = await officeParser.parse(uploadedFile.buffer);
                 logger.info(`Parsed PPTX.`);
             } catch (pptError) {
@@ -73,7 +75,6 @@ exports.uploadDocument = async (req, res) => {
             }
         } else if (mimeType.startsWith('image/')) {
             try {
-                const Tesseract = require('tesseract.js');
                 logger.info(`Starting OCR for Image...`);
                 const { data: { text } } = await Tesseract.recognize(uploadedFile.buffer, 'eng');
                 textContent = text;
@@ -148,7 +149,7 @@ exports.uploadDocument = async (req, res) => {
 // @desc    Get all uploaded documents
 // @route   GET /api/knowledge/documents
 // @access  Public
-exports.getDocuments = async (req, res) => {
+export const getDocuments = async (req, res) => {
     try {
         const documents = await Knowledge.find({}, 'filename uploadDate');
         res.status(200).json({
@@ -164,7 +165,7 @@ exports.getDocuments = async (req, res) => {
 // @desc    Delete a document
 // @route   DELETE /api/knowledge/:id
 // @access  Public
-exports.deleteDocument = async (req, res) => {
+export const deleteDocument = async (req, res) => {
     try {
         const document = await Knowledge.findById(req.params.id);
         if (!document) {

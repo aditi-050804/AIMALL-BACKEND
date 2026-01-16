@@ -15,11 +15,6 @@ const supportChatSchema = new mongoose.Schema({
         enum: ['active', 'closed'],
         default: 'active'
     },
-    chatType: {
-        type: String,
-        enum: ['user_support', 'vendor_support'],
-        default: 'user_support'
-    },
     messages: [{
         senderId: {
             type: mongoose.Schema.Types.ObjectId,

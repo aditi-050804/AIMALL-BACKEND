@@ -71,6 +71,16 @@ const userSchema = new mongoose.Schema({
         type: String,
         trim: true
     },
+    bio: {
+        type: String,
+        trim: true,
+        default: ''
+    },
+    description: {
+        type: String,
+        trim: true,
+        default: ''
+    },
     profile: {
         settings: {
             country: { type: String, default: 'India (English)' },
@@ -87,6 +97,9 @@ const userSchema = new mongoose.Schema({
             intelligenceLevel: { type: String, default: "Level 42" },
             securityStatus: { type: String, default: "Shielded" }
         }
+    },
+    lastLogin: {
+        type: Date
     }
 
 }, { timestamps: true });

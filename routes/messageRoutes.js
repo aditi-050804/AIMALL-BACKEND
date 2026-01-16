@@ -1,9 +1,11 @@
 import express from 'express';
+import User from '../models/User.js';
 import VendorMessage from '../models/VendorMessage.js';
 import Agent from '../models/Agents.js';
-import Notification from '../models/Notification.js';
-import { verifyToken } from '../middleware/authorization.js';
+import Report from '../models/Report.js';
+import ReportMessage from '../models/ReportMessage.js';
 import { sendVendorContactEmail } from '../services/emailService.js';
+import { verifyToken } from '../middleware/authorization.js';
 import rateLimit from 'express-rate-limit';
 
 const router = express.Router();
@@ -11,83 +13,133 @@ const router = express.Router();
 // Rate limiter: 5 messages per 15 minutes per IP
 const contactLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5,
+    max: 100,
     message: 'Too many contact requests. Please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
 });
 
-// POST /api/messages/contact-vendor - Submit new message from user or admin
+// POST /api/messages/contact-vendor - Submit new message from user
 router.post('/contact-vendor', contactLimiter, async (req, res) => {
     try {
-        const { agentId, userName, userEmail, subject, message, userId, senderType } = req.body;
+        const { agentId, vendorId, userName, userEmail, subject, message, userId, senderType } = req.body;
 
-        const isSystemAdmin = senderType === 'Admin' || userEmail === 'admin@aimall.com';
-
-        // Validate required fields
-        if (!agentId || !userName || !userEmail || !subject || !message) {
+        // Validate required fields (agentId OR vendorId must be present)
+        if ((!agentId && !vendorId) || !userName || !userEmail || !subject || !message) {
             return res.status(400).json({
                 success: false,
-                message: 'All fields are required'
+                message: 'Recipient (Agent or Vendor) and all fields are required'
             });
         }
 
-        // Validate email format (skip for system admin if using a placeholder or trusted source)
+        // Validate email format
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!isSystemAdmin && !emailRegex.test(userEmail)) {
+        if (!emailRegex.test(userEmail)) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid email address'
             });
         }
 
-        // Fetch agent details
-        const agent = await Agent.findById(agentId).populate('owner', 'name email');
-        if (!agent) {
-            return res.status(404).json({
-                success: false,
-                message: 'Agent not found'
-            });
+        let recipientVendor;
+        let finalAgentId = agentId;
+        let finalAgentName = "General Inquiry";
+
+        if (agentId) {
+            // Fetch agent details
+            const agent = await Agent.findById(agentId).populate('owner', 'name email');
+            if (!agent) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Agent not found'
+                });
+            }
+            recipientVendor = agent.owner;
+            finalAgentName = agent.agentName;
+        } else if (vendorId) {
+            // Fetch vendor details directly (likely Admin contacting Vendor)
+            const User = (await import('../models/User.js')).default;
+            recipientVendor = await User.findById(vendorId).select('name email');
         }
 
-        if (!agent.owner) {
-            return res.status(400).json({
+        if (!recipientVendor) {
+            return res.status(404).json({
                 success: false,
-                message: 'Agent has no associated vendor'
+                message: 'Recipient vendor not found'
             });
         }
 
         // Create message record
         const vendorMessage = new VendorMessage({
             userId: userId || null,
-            vendorId: agent.owner._id,
-            agentId: agent._id,
+            vendorId: recipientVendor._id,
+            agentId: finalAgentId || null,
             userName: userName.trim(),
             userEmail: userEmail.trim().toLowerCase(),
             subject: subject.trim(),
             message: message.trim(),
-            agentName: agent.agentName,
-            vendorEmail: agent.owner.email,
+            agentName: finalAgentName,
+            vendorEmail: recipientVendor.email,
             status: 'New',
             senderType: senderType || 'User'
         });
 
         await vendorMessage.save();
-        console.log(`[CONTACT VENDOR] Message from ${senderType || 'User'} (${userEmail}) saved for vendor ${agent.owner.email}`);
+
+        // --- NEW: Link to Vendor Admin Support (Signals) ---
+        if (senderType === 'Admin') {
+            try {
+                // Check if there's already an open AdminSupport report for this vendor
+                let report = await Report.findOne({
+                    userId: recipientVendor._id,
+                    type: 'AdminSupport',
+                    status: 'open'
+                }).sort({ createdAt: -1 }); // Get most recent
+
+                if (!report) {
+                    // No existing open report, create a new one
+                    report = await Report.create({
+                        userId: recipientVendor._id, // Recipient Vendor
+                        type: 'AdminSupport',
+                        priority: 'medium',
+                        description: subject || 'Direct message from Admin',
+                        status: 'open'
+                    });
+                    console.log(`[Support Link] Created NEW Report ${report._id} for Admin message to Vendor ${recipientVendor._id}`);
+                } else {
+                    console.log(`[Support Link] Using EXISTING Report ${report._id} for Admin message to Vendor ${recipientVendor._id}`);
+                }
+
+                // Add message to the report (new or existing)
+                console.log(`[Support Link] Adding message to Report ${report._id}. SenderId: ${userId}, SenderRole: admin`);
+
+                await ReportMessage.create({
+                    reportId: report._id,
+                    senderId: userId,
+                    senderRole: 'admin',
+                    message: message
+                });
+
+            } catch (supportErr) {
+                console.error('[Support Link Error] Failed to create Admin Support message:', supportErr);
+                // Don't fail the primary message save even if support link fails
+            }
+        }
+        // --------------------------------------------------
 
         // Send email notification to vendor
         try {
             await sendVendorContactEmail({
-                vendorEmail: agent.owner.email,
-                vendorName: agent.owner.name,
-                userName: userName.trim(),
-                userEmail: userEmail.trim(),
-                agentName: agent.agentName,
-                subject: subject.trim(),
-                message: message.trim()
+                vendorEmail: recipientVendor.email,
+                vendorName: recipientVendor.name,
+                userName: userName,
+                userEmail: userEmail,
+                subject: subject,
+                message: message,
+                agentName: finalAgentName
             });
-        } catch (emailError) {
-            console.error('Email sending failed:', emailError);
+        } catch (emailErr) {
+            console.error('Email notification failed:', emailErr);
             // Don't fail the request if email fails
         }
 
@@ -104,6 +156,153 @@ router.post('/contact-vendor', contactLimiter, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to send message. Please try again later.'
+        });
+    }
+});
+
+// POST /api/messages/send-to-user - Send message from Vendor to User (Chat Mode)
+router.post('/send-to-user', verifyToken, async (req, res) => {
+    console.log('[SEND-TO-USER] Request received');
+    try {
+        const { userId, message, agentId } = req.body;
+        const vendorId = req.user.id; // Authenticated Vendor
+
+        console.log('[SEND-TO-USER] Payload:', { userId, message, agentId, vendorId });
+
+        if (!userId || !message) {
+            console.log('[SEND-TO-USER] Missing required fields');
+            return res.status(400).json({ success: false, message: 'User ID and Message are required' });
+        }
+
+        // Fetch User and Vendor details
+        console.log('[SEND-TO-USER] Fetching User:', userId);
+        const user = await User.findById(userId);
+        if (!user) {
+            console.log('[SEND-TO-USER] User not found for ID:', userId);
+        }
+
+        console.log('[SEND-TO-USER] Fetching Vendor:', vendorId);
+        const vendor = await User.findById(vendorId); // Fetch vendor to get email
+        if (!vendor) {
+            console.log('[SEND-TO-USER] Vendor not found for ID:', vendorId);
+        }
+
+        const vendorMessage = new VendorMessage({
+            userId,
+            vendorId,
+            agentId: agentId || null,
+            message: message,
+            senderType: 'Vendor',
+            status: 'Replied', // Considered replied/active
+            userEmail: user ? user.email : 'unknown@user.com', // Fallback for stability
+            userName: user ? user.name : 'Unknown User',
+            vendorEmail: vendor ? vendor.email : 'vendor@support.com', // Fallback
+            subject: 'Support Message' // Required field
+        });
+
+        console.log('[SEND-TO-USER] Saving message...');
+        await vendorMessage.save();
+        console.log('[SEND-TO-USER] Message saved successfully');
+
+        // --- NEW: Sync to ReportMessage if recipient is an Admin ---
+        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        const isRecipientAdmin = user && (user.role?.toLowerCase() === 'admin' || user.email === adminEmail);
+
+        if (isRecipientAdmin) {
+            try {
+                // Find or Create an AdminSupport report for this vendor
+                let report = await Report.findOne({
+                    userId: vendorId,
+                    type: 'AdminSupport',
+                    status: 'open'
+                }).sort({ createdAt: -1 });
+
+                if (!report) {
+                    report = await Report.create({
+                        userId: vendorId,
+                        type: 'AdminSupport',
+                        priority: 'medium',
+                        description: 'Direct Message from Vendor',
+                        status: 'open'
+                    });
+                }
+
+                await ReportMessage.create({
+                    reportId: report._id,
+                    senderId: vendorId,
+                    senderRole: 'vendor',
+                    message: message
+                });
+                console.log(`[Sync] Synced VendorMessage ${vendorMessage._id} to Report ${report._id} for Admin visibility`);
+            } catch (syncErr) {
+                console.error('[Sync Error] Failed to sync to ReportMessage:', syncErr);
+            }
+        }
+        // -----------------------------------------------------------
+
+        res.json({
+            success: true,
+            data: vendorMessage
+        });
+
+    } catch (error) {
+        console.error('[SEND-TO-USER] Error:', error);
+        res.status(500).json({ success: false, message: 'Failed to send message', error: error.message });
+    }
+});
+
+// GET /api/messages/history - Fetch conversation history between user and vendor
+router.get('/history', async (req, res) => {
+    try {
+        const { userId, vendorId, agentId } = req.query;
+
+        if (!userId || !vendorId) {
+            return res.status(400).json({
+                success: false,
+                message: 'UserId and VendorId are required'
+            });
+        }
+
+        const query = { userId, vendorId };
+        if (agentId) query.agentId = agentId;
+
+        const messages = await VendorMessage.find(query)
+            .sort({ createdAt: 1 }) // Chronological order for chat interface
+            .lean();
+
+        res.json({
+            success: true,
+            data: messages
+        });
+
+    } catch (error) {
+        console.error('Fetch history error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch history'
+        });
+    }
+});
+
+// GET /api/messages/user/:userId - Fetch all messages for a specific user (User Inbox)
+router.get('/user/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        const messages = await VendorMessage.find({ userId })
+            .sort({ updatedAt: -1 })
+            .lean();
+
+        res.json({
+            success: true,
+            data: messages
+        });
+
+    } catch (error) {
+        console.error('Fetch user messages error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch messages'
         });
     }
 });
@@ -220,7 +419,7 @@ router.post('/send-reply', async (req, res) => {
         try {
             if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
                 const nodemailer = await import('nodemailer');
-                const transporter = nodemailer.default.createTransporter({
+                const transporter = nodemailer.default.createTransport({
                     service: process.env.EMAIL_SERVICE || 'gmail',
                     auth: {
                         user: process.env.EMAIL_USER,
@@ -320,39 +519,39 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// POST /api/messages/admin-direct - Admin directly contacts a vendor
-router.post('/admin-direct', verifyToken, async (req, res) => {
+// DELETE /api/messages/:messageId - Delete message
+router.delete('/:messageId', verifyToken, async (req, res) => {
     try {
-        const { vendorId, subject, message } = req.body;
+        const { messageId } = req.params;
+        const vendorId = req.user._id || req.user.id; // Use both possibilities
 
-        if (req.user.role !== 'admin') {
-            return res.status(403).json({ success: false, message: 'Access denied. Admins only.' });
+        if (!vendorId) {
+            return res.status(401).json({ success: false, message: 'Vendor identity not found in token' });
         }
 
-        if (!vendorId || !subject || !message) {
-            return res.status(400).json({ success: false, message: 'VendorId, subject and message are required' });
+        // Ensure the message exists and belongs to this vendor
+        const message = await VendorMessage.findOne({ _id: messageId, vendorId });
+
+        if (!message) {
+            return res.status(404).json({
+                success: false,
+                message: 'Message not found or unauthorized'
+            });
         }
 
-        // 1. Create In-App Notification for Vendor
-        await Notification.create({
-            userId: vendorId,
-            title: `Message from Admin: ${subject}`,
-            message: message,
-            type: 'info',
-            role: 'vendor'
-        });
-
-        // 2. Opt-in: Send email in background if possible
-        // (Reusing logic from send-reply or similar if needed, keeping it simple for now)
+        await VendorMessage.findByIdAndDelete(messageId);
 
         res.json({
             success: true,
-            message: 'Message sent to vendor successfully'
+            message: 'Message deleted successfully'
         });
 
     } catch (error) {
-        console.error('Admin direct message error:', error);
-        res.status(500).json({ success: false, message: 'Failed to send direct message' });
+        console.error('Delete message error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete message'
+        });
     }
 });
 

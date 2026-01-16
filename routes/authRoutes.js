@@ -5,6 +5,8 @@ import generateTokenAndSetCookies from "../utils/generateTokenAndSetCookies.js";
 import { generateOTP } from "../utils/verifiacitonCode.js";
 import { sendVerificationEmail, sendResetPasswordEmail } from "../utils/Email.js";
 import crypto from "crypto";
+import { OAuth2Client } from "google-auth-library";
+import axios from "axios";
 
 const router = express.Router();
 
@@ -82,6 +84,10 @@ router.post("/login", async (req, res) => {
 
     // Generate token
     const token = generateTokenAndSetCookies(res, user._id, user.email, user.name, user.role);
+
+    // Update lastLogin
+    user.lastLogin = new Date();
+    await user.save();
 
     res.status(201).json({
       id: user._id,
@@ -207,4 +213,67 @@ router.get("/admin-contact", async (req, res) => {
   }
 });
 
+// ====================== GOOGLE AUTH =======================
+
+router.post("/google", async (req, res) => {
+  try {
+    const { token, access_token } = req.body;
+    let email, name, picture;
+
+    if (token) {
+      // Handle ID Token
+      const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+      const ticket = await client.verifyIdToken({
+        idToken: token,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+      email = payload.email;
+      name = payload.name;
+      picture = payload.picture;
+    } else if (access_token) {
+      // Handle Access Token (for custom buttons using useGoogleLogin)
+      const response = await axios.get(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${access_token}`);
+      email = response.data.email;
+      name = response.data.name;
+      picture = response.data.picture;
+    } else {
+      return res.status(400).json({ error: "Missing token or access_token" });
+    }
+
+    let user = await UserModel.findOne({ email });
+
+    if (!user) {
+      user = await UserModel.create({
+        name,
+        email,
+        avatar: picture,
+        isVerified: true,
+        password: "",
+      });
+    }
+
+    const authToken = generateTokenAndSetCookies(res, user._id, user.email, user.name, user.role);
+
+    // Update lastLogin
+    user.lastLogin = new Date();
+    await user.save();
+
+    res.status(200).json({
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar,
+      message: "Google Login Successful",
+      token: authToken,
+      role: user.role
+    });
+
+  } catch (err) {
+    console.error("Google Auth Error:", err);
+    res.status(400).json({ error: "Google Authentication Failed" });
+  }
+});
+
 export default router;
+
