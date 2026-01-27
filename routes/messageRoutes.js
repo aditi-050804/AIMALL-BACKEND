@@ -205,7 +205,7 @@ router.post('/send-to-user', verifyToken, async (req, res) => {
         console.log('[SEND-TO-USER] Message saved successfully');
 
         // --- NEW: Sync to ReportMessage if recipient is an Admin ---
-        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@uwo24.com';
         const isRecipientAdmin = user && (user.role?.toLowerCase() === 'admin' || user.email === adminEmail);
 
         if (isRecipientAdmin) {
@@ -501,6 +501,38 @@ router.post('/send-reply', async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to process reply'
+        });
+    }
+});
+
+// DELETE /api/messages/clear-history - Clear conversation history
+router.delete('/clear-history', async (req, res) => {
+    try {
+        const { userId, vendorId, agentId } = req.query;
+
+        if (!userId || !vendorId) {
+            return res.status(400).json({
+                success: false,
+                message: 'UserId and VendorId are required'
+            });
+        }
+
+        const query = { userId, vendorId };
+        if (agentId) query.agentId = agentId;
+
+        const result = await VendorMessage.deleteMany(query);
+
+        res.json({
+            success: true,
+            message: 'Conversation history cleared successfully',
+            data: { deletedCount: result.deletedCount }
+        });
+
+    } catch (error) {
+        console.error('Clear history error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to clear history'
         });
     }
 });

@@ -29,6 +29,10 @@ const reportSchema = new mongoose.Schema({
         enum: ['open', 'in-progress', 'resolved', 'closed'],
         default: 'open'
     },
+    resolutionNote: {
+        type: String,
+        required: false
+    },
     timestamp: {
         type: Date,
         default: Date.now

@@ -238,7 +238,7 @@ router.get('/status/:email', async (req, res) => {
 router.get('/admin/pending', verifyToken, async (req, res) => {
     try {
         // Check if user is admin (Role based OR specific email override)
-        const isAdminUser = req.user.role === 'admin' || req.user.email === 'aditilakhera0@gmail.com';
+        const isAdminUser = req.user.role === 'admin' || req.user.email === 'admin@uwo24.com';
 
         if (!isAdminUser) {
             return res.status(403).json({
@@ -272,7 +272,7 @@ router.get('/admin/pending', verifyToken, async (req, res) => {
 // GET /api/vendor/admin/all - Get All Vendors (Admin Only)
 router.get('/admin/all', verifyToken, async (req, res) => {
     try {
-        if (req.user.role !== 'admin' && req.user.email !== 'aditilakhera0@gmail.com') {
+        if (req.user.role !== 'admin' && req.user.email !== 'admin@uwo24.com') {
             return res.status(403).json({
                 success: false,
                 message: 'Admin access required'

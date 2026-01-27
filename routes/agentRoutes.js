@@ -65,8 +65,9 @@ route.post('/', verifyToken, async (req, res) => {
     const slug = `${baseSlug}-${uniqueSuffix}`;
 
     // Prepare agent data
-    const requester = await userModel.findById(req.user.id);
-    const isAdmin = requester?.role?.toLowerCase() === 'admin';
+    const adminEmails = [process.env.ADMIN_EMAIL, 'aditilakhera0@gmail.com'].filter(Boolean);
+    const isAdmin = req.user.role?.toLowerCase() === 'admin' ||
+      adminEmails.some(email => req.user.email === email);
 
     const agentData = {
       agentName,
@@ -79,10 +80,31 @@ route.post('/', verifyToken, async (req, res) => {
       pricing: pricingData,
       status: isAdmin ? 'Live' : 'Inactive',
       reviewStatus: isAdmin ? 'Approved' : 'Draft',
-      owner: req.user.id
+      owner: req.user._id || req.user.id
     };
 
     const newAgent = await agentModel.create(agentData);
+
+    // If Admin created it Live, broadcast to ALL users
+    if (isAdmin && agentData.status === 'Live') {
+      try {
+        const allUsers = await userModel.find({}).select('_id');
+        const notifications = allUsers.map(u => ({
+          userId: u._id,
+          title: 'New App Arrival',
+          message: `Exciting News: '${agentName}' has just landed in the AI Mall Marketplace. Deploy it now!`,
+          type: 'info',
+          role: 'user',
+          targetId: newAgent._id
+        }));
+        if (notifications.length > 0) {
+          await notificationModel.insertMany(notifications);
+          console.log(`[BROADCAST] Notified ${notifications.length} users about new agent ${agentName}`);
+        }
+      } catch (broadcastErr) {
+        console.error("Failed to broadcast new agent notification:", broadcastErr);
+      }
+    }
 
     // Agent created successfully
     res.status(201).json(newAgent);
@@ -242,8 +264,13 @@ route.get('/created-by-me', verifyToken, async (req, res) => {
 // Submit for review
 route.patch('/:id/submit_review', verifyToken, async (req, res) => {
   try {
+    const adminEmails = [process.env.ADMIN_EMAIL, 'aditilakhera0@gmail.com'].filter(Boolean);
+    const isAdmin = req.user.role?.toLowerCase() === 'admin' ||
+      adminEmails.some(email => req.user.email === email);
+
+    const filter = isAdmin ? { _id: req.params.id } : { _id: req.params.id, owner: req.user._id || req.user.id };
     const agent = await agentModel.findOneAndUpdate(
-      { _id: req.params.id, owner: req.user.id },
+      filter,
       { reviewStatus: 'Pending Review' },
       { new: true }
     );
@@ -321,7 +348,7 @@ route.post('/approve/:id', verifyToken, async (req, res) => {
   try {
     // Check Admin Role (Robust Check)
     const requester = await userModel.findById(req.user.id);
-    const isAdmin = requester?.role?.toLowerCase() === 'admin' || requester?.email === 'aditilakhera0@gmail.com';
+    const isAdmin = requester?.role?.toLowerCase() === 'admin' || requester?.email === 'admin@uwo24.com';
 
     if (!isAdmin) {
       return res.status(403).json({ error: "Access Denied. Admins only." });
@@ -384,7 +411,7 @@ route.post('/reject/:id', verifyToken, async (req, res) => {
   try {
     // Check Admin Role (Robust Check)
     const requester = await userModel.findById(req.user.id);
-    const isAdmin = requester?.role?.toLowerCase() === 'admin' || requester?.email === 'aditilakhera0@gmail.com';
+    const isAdmin = requester?.role?.toLowerCase() === 'admin' || requester?.email === 'admin@uwo24.com';
 
     if (!isAdmin) {
       return res.status(403).json({ error: "Access Denied. Admins only." });
@@ -475,11 +502,52 @@ route.get('/:id', async (req, res) => {
 
 route.put('/:id', verifyToken, async (req, res) => {
   try {
+    const adminEmails = [process.env.ADMIN_EMAIL, 'admin@uwo24.com'].filter(Boolean);
+    const isAdmin = req.user.role?.toLowerCase() === 'admin' ||
+      adminEmails.some(email => req.user.email === email);
+
+    // If Admin is making it Live, automatically Approve it
+    const updateData = { ...req.body };
+    if (isAdmin && updateData.status === 'Live') {
+      updateData.reviewStatus = 'Approved';
+    }
+
+    // Allow Admins to update any agent, owners only their own
+    const userId = req.user._id || req.user.id;
+    const filter = isAdmin ? { _id: req.params.id } : { _id: req.params.id, owner: userId };
+
     const agent = await agentModel.findOneAndUpdate(
-      { _id: req.params.id, owner: req.user.id },
-      req.body,
+      filter,
+      updateData,
       { new: true }
     );
+
+    if (!agent) {
+      console.log(`[AGENT UPDATE] No agent found or unauthorized. ID: ${req.params.id}, User: ${userId}, IsAdmin: ${isAdmin}`);
+      return res.status(404).json({ error: "Agent not found or unauthorized" });
+    }
+
+    // If Admin JUST made it Live (status changed to Live), broadcast to ALL users
+    if (isAdmin && updateData.status === 'Live') {
+      try {
+        const allUsers = await userModel.find({}).select('_id');
+        const notifications = allUsers.map(u => ({
+          userId: u._id,
+          title: 'New Agent Available',
+          message: `New Arrival: '${agent.agentName}' is now available in the marketplace. Check it out!`,
+          type: 'info',
+          role: 'user',
+          targetId: agent._id
+        }));
+        if (notifications.length > 0) {
+          await notificationModel.insertMany(notifications);
+          console.log(`[BROADCAST] Notified ${notifications.length} users about live update for ${agent.agentName}`);
+        }
+      } catch (broadcastErr) {
+        console.error("Failed to broadcast status update notification:", broadcastErr);
+      }
+    }
+
     res.json(agent);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -494,18 +562,40 @@ route.delete('/:id', verifyToken, async (req, res) => {
       return res.status(404).json({ error: "Agent not found" });
     }
 
-    const requestor = await userModel.findById(req.user.id);
-    const isAdmin = requestor?.role?.toLowerCase() === 'admin';
+    const adminEmails = [process.env.ADMIN_EMAIL, 'admin@uwo24.com'].filter(Boolean);
+    const isAdmin = req.user.role?.toLowerCase() === 'admin' ||
+      adminEmails.some(email => req.user.email === email);
+
+    console.log(`[DELETE AGENT] Request by User: ${req.user._id || req.user.id}, Email: ${req.user.email}, IsAdmin: ${isAdmin}`);
 
     // 1. If Admin -> Proceed with Hard Delete (Moderation Action)
     if (isAdmin) {
-      console.log(`[DELETE AGENT] User ${req.user.id} is ADMIN. Performing Hard Delete.`);
+      console.log(`[DELETE AGENT] User ${req.user.id} is ADMIN (by role or email). Performing Hard Delete.`);
+
+      // Notify Agent Owner
+      if (agent.owner) {
+        try {
+          await notificationModel.create({
+            userId: agent.owner,
+            title: 'Agent Removed by Admin',
+            message: `Administrative Action: Your agent '${agent.agentName}' has been removed from the marketplace by an administrator.`,
+            type: 'error',
+            role: 'vendor',
+            targetId: agent._id
+          });
+          console.log(`[DELETE AGENT] Notified owner ${agent.owner}`);
+        } catch (notifErr) {
+          console.error("Failed to notify owner about deletion:", notifErr);
+        }
+      }
+
       // Notify Subscribers (Safely) - Send BEFORE deleting
       try {
         const transactions = await transactionModel.find({ agentId: agent._id });
         const uniqueBuyers = [...new Set(transactions.map(t => t.buyerId?.toString()))].filter(id => id);
 
-        const notifications = uniqueBuyers.map(userId => ({
+        // 1. Notify Subscribers (Warning)
+        const subNotifications = uniqueBuyers.map(userId => ({
           userId,
           title: 'App Removed',
           message: `Important Update: '${agent.agentName}' has been removed from the marketplace. Your subscription will not renew.`,
@@ -514,11 +604,27 @@ route.delete('/:id', verifyToken, async (req, res) => {
           targetId: agent._id
         }));
 
-        if (notifications.length > 0) {
-          await notificationModel.insertMany(notifications);
+        if (subNotifications.length > 0) {
+          await notificationModel.insertMany(subNotifications);
         }
+
+        // 2. Broadcast to EVERYONE (Global Removal Notice)
+        const allUsers = await userModel.find({}).select('_id');
+        const globalNotifications = allUsers.map(u => ({
+          userId: u._id,
+          title: 'Marketplace Update',
+          message: `System Alert: '${agent.agentName}' has been removed from the marketplace for maintenance or optimization.`,
+          type: 'info',
+          role: 'user'
+        }));
+
+        if (globalNotifications.length > 0) {
+          await notificationModel.insertMany(globalNotifications);
+        }
+
+        console.log(`[DELETE AGENT] Notified ${uniqueBuyers.length} subscribers and ${allUsers.length} total users`);
       } catch (notifErr) {
-        console.error("Failed to send deletion notifications:", notifErr);
+        console.error("Failed to send deletion notifications to subscribers:", notifErr);
       }
 
       // Hard Delete from Database
@@ -555,8 +661,8 @@ route.delete('/:id', verifyToken, async (req, res) => {
     }
 
     // If neither Admin nor Owner
-    console.log(`[DELETE AGENT] Access Denied for User ${req.user.id}`);
-    return res.status(403).json({ error: "Access Denied" });
+    console.log(`[DELETE AGENT] Access Denied for User ${req.user.id}. IsAdmin: ${isAdmin}, IsOwner: ${agent.owner.toString() === req.user.id.toString()}`);
+    return res.status(403).json({ error: "Access Denied. You must be an administrator or the agent owner." });
 
   } catch (err) {
     res.status(500).json({ error: err.message });

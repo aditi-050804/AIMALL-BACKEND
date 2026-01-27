@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import Report from '../models/Report.js';
 import ReportMessage from '../models/ReportMessage.js';
 import Notification from '../models/Notification.js';
@@ -10,7 +11,7 @@ const router = express.Router();
 // GET /api/reports (Admin only - fetch all reports)
 router.get('/', verifyToken, async (req, res) => {
     try {
-        const isAdmin = req.user.role === 'admin' || req.user.email === 'aditilakhera0@gmail.com';
+        const isAdmin = req.user.role === 'admin' || req.user.email === 'admin@uwo24.com';
         if (!isAdmin) {
             return res.status(403).json({ error: 'Admin access required' });
         }
@@ -48,7 +49,7 @@ router.get('/user/:userId', verifyToken, async (req, res) => {
         console.log(`[FETCH REPORTS FOR USER] UserId: ${userId}, Type: ${type}, Requestor Role: ${req.user.role}`);
 
         // Authorization check: User must be admin or requesting their own reports
-        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@uwo24.com';
         const isAdmin = req.user.role?.toLowerCase() === 'admin' || req.user.email === adminEmail;
 
         // Authorization check: User must be admin or requesting their own reports
@@ -76,24 +77,60 @@ router.get('/user/:userId', verifyToken, async (req, res) => {
 router.post('/submit', verifyToken, async (req, res) => {
     try {
         const { type, priority, description, targetId } = req.body;
-        console.log('[DEBUG SUBMIT REPORT] Body:', req.body);
-        console.log('[DEBUG SUBMIT REPORT] User:', req.user);
+        const currentUserId = req.user._id || req.user.id;
 
+        console.log(`[DEBUG SUBMIT] Category: ${type}, User: ${currentUserId}`);
+
+        // 1. Find an existing active report for this user & category
+        let report = await Report.findOne({
+            userId: currentUserId,
+            type,
+            status: { $in: ['open', 'in-progress'] }
+        });
+
+        if (report) {
+            console.log(`[DEBUG SUBMIT] Found existing report ${report._id}. Appending message.`);
+
+            // Add follow-up message
+            await ReportMessage.create({
+                reportId: report._id,
+                senderId: currentUserId,
+                senderRole: 'user',
+                message: description
+            });
+
+            // Update timestamp to bubble it up
+            report.timestamp = new Date();
+            await report.save();
+
+            return res.json(report);
+        }
+
+        // 2. No active report found, create a NEW one
+        console.log('[DEBUG SUBMIT] Creating fresh report.');
         const newReport = await Report.create({
-            userId: req.user.id,
+            userId: currentUserId,
             type,
             priority,
             description,
             status: 'open',
-            targetId // Optional: if reporting a specific app/agent
+            targetId
         });
 
-        // Populate user details for email
-        await newReport.populate('userId', 'name email');
+        // 3. IMPORTANT: Also record the initial message in ReportMessage collection
+        // This ensures the history always includes the very first message
+        await ReportMessage.create({
+            reportId: newReport._id,
+            senderId: currentUserId,
+            senderRole: 'user',
+            message: description
+        });
 
-        // Send email notification to admin
-        const emailResult = await sendAdminNotification(newReport);
-        console.log('[EMAIL NOTIFICATION]', emailResult.message);
+        console.log(`[DEBUG SUBMIT] Created new report ${newReport._id} with initial message history.`);
+
+        // Populate user details for email notification
+        await newReport.populate('userId', 'name email');
+        await sendAdminNotification(newReport);
 
         res.status(201).json(newReport);
     } catch (err) {
@@ -105,7 +142,7 @@ router.post('/submit', verifyToken, async (req, res) => {
 // POST /api/reports/:id/reply (Admin sends email reply to vendor)
 router.post('/:id/reply', verifyToken, async (req, res) => {
     try {
-        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@uwo24.com';
         const isAdmin = req.user.role?.toLowerCase() === 'admin' || req.user.email === adminEmail;
         if (!isAdmin) {
             return res.status(403).json({ error: 'Admin access required' });
@@ -139,6 +176,7 @@ router.post('/:id/reply', verifyToken, async (req, res) => {
         // Create notification for vendor
         await Notification.create({
             userId: report.userId._id,
+            title: 'New Support Reply',
             message: `Admin replied to your support ticket: "${message.substring(0, 50)}..."`,
             type: 'info',
             targetId: reportId
@@ -154,33 +192,61 @@ router.post('/:id/reply', verifyToken, async (req, res) => {
 // PUT /api/reports/:id/resolve (Admin updates status)
 router.put('/:id/resolve', verifyToken, async (req, res) => {
     try {
-        const isAdmin = req.user.role === 'admin' || req.user.email === 'aditilakhera0@gmail.com';
+        const isAdmin = req.user.role === 'admin' || req.user.email === 'admin@uwo24.com';
         if (!isAdmin) {
             return res.status(403).json({ error: 'Admin access required' });
         }
         const { status, resolutionNote } = req.body;
         const reportId = req.params.id;
 
+        // Fetch old report to compare
+        const oldReport = await Report.findById(reportId);
+        if (!oldReport) return res.status(404).json({ error: 'Report not found' });
+
+        const statusChanged = oldReport.status !== status;
+        const noteChanged = oldReport.resolutionNote !== resolutionNote;
+
+        // If nothing changed, just return a success message without creating a new notification
+        if (!statusChanged && !noteChanged) {
+            return res.json(oldReport);
+        }
+
         const report = await Report.findByIdAndUpdate(
             reportId,
-            { status }, // Could also add resolutionNote field to schema if needed
+            { status, resolutionNote },
             { new: true }
         );
 
-        if (!report) return res.status(404).json({ error: 'Report not found' });
-
         // Notify the user who submitted the report
-        // Notify the user who submitted the report
-        const notificationMessage = resolutionNote
-            ? `Your report (ID: ${report._id.toString().substring(0, 8)}) status has been updated to: ${status}. Admin response: "${resolutionNote}"`
-            : `Your report (ID: ${report._id.toString().substring(0, 8)}) status has been updated to: ${status}`;
+        let notificationMessage = '';
+        if (statusChanged && noteChanged && resolutionNote) {
+            notificationMessage = `Your report (ID: ${report._id.toString().substring(0, 8)}) status has been updated to: ${status}. Admin response: "${resolutionNote}"`;
+        } else if (statusChanged) {
+            notificationMessage = `Your report (ID: ${report._id.toString().substring(0, 8)}) status has been updated to: ${status}`;
+        } else if (noteChanged && resolutionNote) {
+            notificationMessage = `Admin has responded to your report (ID: ${report._id.toString().substring(0, 8)}): "${resolutionNote}"`;
+        }
 
-        await Notification.create({
-            userId: report.userId,
-            message: notificationMessage,
-            type: status === 'resolved' ? 'success' : 'info',
-            targetId: report._id
-        });
+        // NEW: Record admin response as a Message if a note was provided
+        if (noteChanged && resolutionNote) {
+            const currentUserId = req.user._id || req.user.id;
+            await ReportMessage.create({
+                reportId: report._id,
+                senderId: currentUserId,
+                senderRole: 'admin',
+                message: resolutionNote
+            });
+        }
+
+        if (notificationMessage) {
+            await Notification.create({
+                userId: report.userId,
+                title: 'New Support Reply',
+                message: notificationMessage,
+                type: status === 'resolved' ? 'success' : 'info',
+                targetId: report._id
+            });
+        }
 
         res.json(report);
     } catch (err) {
@@ -192,7 +258,7 @@ router.put('/:id/resolve', verifyToken, async (req, res) => {
 // DELETE /api/reports/:id (Admin only - delete report)
 router.delete('/:id', verifyToken, async (req, res) => {
     try {
-        const isAdmin = req.user.role === 'admin' || req.user.email === 'aditilakhera0@gmail.com';
+        const isAdmin = req.user.role === 'admin' || req.user.email === 'admin@uwo24.com';
         if (!isAdmin) {
             return res.status(403).json({ error: 'Admin access required' });
         }
@@ -222,14 +288,30 @@ router.get('/:reportId/messages', verifyToken, async (req, res) => {
         const report = await Report.findById(reportId);
         if (!report) return res.status(404).json({ error: 'Report not found' });
 
-        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        console.log(`[DEBUG FETCH] Fetching messages for report: ${reportId}. Type: ${report.type}`);
+
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@uwo24.com';
         const isAdmin = req.user.role?.toLowerCase() === 'admin' || req.user.email === adminEmail;
-        if (!isAdmin && report.userId.toString() !== req.user.id) {
+        const currentUserId = (req.user._id || req.user.id).toString();
+
+        if (!isAdmin && report.userId.toString() !== currentUserId) {
+            console.log(`[DEBUG FETCH] Access denied. Report UserId: ${report.userId}, Auth UserId: ${currentUserId}`);
             return res.status(403).json({ error: 'Access denied' });
         }
 
-        const messages = await ReportMessage.find({ reportId })
-            .sort({ createdAt: 1 });
+        // Use both formatted ObjectId and raw string for maximum compatibility
+        const messages = await ReportMessage.find({
+            $or: [
+                { reportId: reportId },
+                { reportId: new mongoose.Types.ObjectId(reportId) }
+            ]
+        }).sort({ createdAt: 1 });
+
+        console.log(`[DEBUG FETCH] Found ${messages.length} messages for report ${reportId}`);
+        // Log the first message content if any
+        if (messages.length > 0) {
+            console.log(`[DEBUG FETCH] First message sender: ${messages[0].senderRole}, text: ${messages[0].message.substring(0, 20)}`);
+        }
         res.json(messages);
     } catch (err) {
         console.error('[FETCH REPORT MESSAGES ERROR]', err);
@@ -249,7 +331,7 @@ router.post('/:reportId/messages', verifyToken, async (req, res) => {
         const report = await Report.findById(reportId).populate('userId', 'name email');
         if (!report) return res.status(404).json({ error: 'Report not found' });
 
-        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@uwo24.com';
         const isAdmin = req.user.email === adminEmail || req.user.role?.toLowerCase() === 'admin';
         const senderRole = isAdmin ? 'admin' : (req.user.role?.toLowerCase() || 'vendor');
 
@@ -308,7 +390,7 @@ router.delete('/:reportId/messages', verifyToken, async (req, res) => {
             return res.status(404).json({ error: 'Report not found' });
         }
 
-        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@uwo24.com';
         const isAdmin = req.user.role?.toLowerCase() === 'admin' || req.user.email === adminEmail;
         if (!isAdmin && report.userId.toString() !== req.user.id) {
             console.log('❌ Unauthorized delete attempt');

@@ -28,7 +28,7 @@ router.get('/my-chat', verifyToken, async (req, res) => {
 
 // Admin: Get all chats (History)
 router.get('/admin/active', verifyToken, async (req, res) => {
-    const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@uwo24.com';
     if (req.user.role?.toLowerCase() !== 'admin' && req.user.email !== adminEmail) {
         return res.status(403).json({ error: 'Unauthorized' });
     }
@@ -59,7 +59,7 @@ router.post('/:chatId/message', verifyToken, async (req, res) => {
         if (!chat) return res.status(404).json({ error: 'Chat not found' });
 
         // Security check: Only user or admin can message
-        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@uwo24.com';
         const isAdmin = req.user.role?.toLowerCase() === 'admin' || req.user.email === adminEmail;
 
         if (chat.userId.toString() !== req.user.id && !isAdmin) {
@@ -162,7 +162,7 @@ router.delete('/:chatId/messages', verifyToken, async (req, res) => {
         }
 
         // Security check: Only user or admin can delete messages
-        const adminEmail = process.env.ADMIN_EMAIL || 'aditilakhera0@gmail.com';
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@uwo24.com';
         const isAdmin = req.user.role?.toLowerCase() === 'admin' || req.user.email === adminEmail;
         if (chat.userId.toString() !== req.user.id && !isAdmin) {
             console.log(`[SupportChat] Unauthorized delete attempt by ${req.user.id}`);
