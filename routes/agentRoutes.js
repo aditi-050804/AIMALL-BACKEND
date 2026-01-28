@@ -33,8 +33,10 @@ route.get("/", async (req, res) => {
       filter.isDeleted = { $ne: true };
     }
 
-    // Build query with sorting (newest first)
-    let query = agentModel.find(filter).sort({ createdAt: -1 });
+    // Build query with sorting (newest first) and select only needed fields to keep payload small
+    let query = agentModel.find(filter)
+      .select('agentName description category avatar status reviewStatus platform url pricing createdAt slug')
+      .sort({ createdAt: -1 });
 
     // Apply limit if provided (useful for featured sections)
     if (limit && !isNaN(parseInt(limit))) {
