@@ -49,8 +49,14 @@ router.post("/signup", async (req, res) => {
     const token = generateTokenAndSetCookies(res, newUser._id, newUser.email, newUser.name, newUser.role);
 
 
-    // Send OTP email
-    await sendVerificationEmail(newUser.email, newUser.name, newUser.verificationCode);
+    // Send OTP email (don't block signup if email fails)
+    try {
+      await sendVerificationEmail(newUser.email, newUser.name, newUser.verificationCode);
+      console.log(`✅ OTP email sent successfully to ${newUser.email}`);
+    } catch (emailError) {
+      console.error(`⚠️ Failed to send OTP email to ${newUser.email}:`, emailError);
+      // Continue with signup even if email fails - user can request resend later
+    }
 
     res.status(201).json({
       id: newUser._id,

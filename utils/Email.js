@@ -5,16 +5,24 @@ import { marketPlace } from "../consts.js";
 
 export const sendVerificationEmail = async (email, name, verificationCode) => {
   try {
+    console.log(`📧 Attempting to send verification email to: ${email}`);
+    console.log(`📧 Verification Code: ${verificationCode}`);
+    console.log(`📧 From: A-Series <${process.env.EMAIL}>`);
+
     const response = await resend.emails.send({
       from: `A-Series <${process.env.EMAIL}>`,
       to: [email],
       subject: "Verify Your Email",
       html: Verification_Email_Template.replace("{name}", name).replace("{verificationCode}", verificationCode)
     })
-    console.log("resend_msg", response);
+
+    console.log("✅ Verification email sent successfully:", response);
+    return response;
 
   } catch (error) {
-    console.log('Email error', error)
+    console.error('❌ VERIFICATION EMAIL ERROR:', error);
+    console.error('Error details:', JSON.stringify(error, null, 2));
+    throw error; // Re-throw to let the caller know it failed
   }
 }
 
