@@ -113,8 +113,24 @@ route.get("/all", verifyToken, async (req, res) => {
         // For now, let's fetch all users.
 
         const users = await userModel.find({})
-            .populate('agents', 'agentName pricing')
             .select('-password');
+
+        // Fetch all agents to check ownership (Created Agents)
+        const allAgents = await Agent.find({}).select('agentName pricing owner status category');
+
+        // Map agents to their owners
+        const agentOwnerMap = {};
+        const orphanedAgents = [];
+
+        allAgents.forEach(agent => {
+            if (agent.owner) {
+                const ownerId = agent.owner.toString();
+                if (!agentOwnerMap[ownerId]) agentOwnerMap[ownerId] = [];
+                agentOwnerMap[ownerId].push(agent);
+            } else {
+                orphanedAgents.push(agent);
+            }
+        });
 
         // Fetch all transactions to map spend
         // Optimization: Aggregate all transactions by userId
@@ -130,16 +146,25 @@ route.get("/all", verifyToken, async (req, res) => {
             return acc;
         }, {});
 
-        const usersWithDetails = users.map(user => ({
-            id: user._id,
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            status: user.isVerified ? 'Active' : 'Pending',
-            agents: user.agents || [],
-            avatar: user.avatar,
-            spent: spendMap[user._id.toString()] || 0
-        }));
+        const usersWithDetails = users.map(user => {
+            let userAgents = agentOwnerMap[user._id.toString()] || [];
+
+            // Assign orphaned agents to the main admin
+            if (user.role === 'admin' || user.email === 'admin@uwo24.com') {
+                userAgents = [...userAgents, ...orphanedAgents];
+            }
+
+            return {
+                id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                status: user.isVerified ? 'Active' : 'Pending',
+                agents: userAgents,
+                avatar: user.avatar,
+                spent: spendMap[user._id.toString()] || 0
+            };
+        });
 
         res.json(usersWithDetails);
 

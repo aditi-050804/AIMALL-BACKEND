@@ -80,6 +80,21 @@ router.post('/:id/reply', async (req, res) => {
         }
 
         await ticket.save();
+
+        // Notify User if Admin replied
+        if (sender === 'admin' && ticket.userId) {
+            // Dynamic import to avoid circular dependency issues if any, though likely safe to import at top
+            const Notification = (await import('../models/Notification.js')).default;
+            await Notification.create({
+                userId: ticket.userId,
+                title: 'Support Ticket Update',
+                message: `New Reply: Admin has replied to your ticket '${ticket.subject || 'Support Request'}'.`,
+                type: 'info',
+                role: 'user',
+                targetId: ticket._id
+            });
+        }
+
         res.json(ticket);
     } catch (error) {
         console.error("Error adding reply:", error);
