@@ -19,6 +19,12 @@ const chatSessionSchema = new mongoose.Schema({
     unique: true,
     index: true
   },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+    index: true
+  },
   title: { type: String, default: 'New Chat' },
   messages: [messageSchema],
   lastModified: { type: Number, default: Date.now }

@@ -35,7 +35,7 @@ router.post("/", verifyToken, async (req, res) => {
         { sessionId },
         {
           $push: { messages: userMsg },
-          $set: { lastModified: Date.now(), ...(title && { title }) }
+          $set: { lastModified: Date.now(), ...(title && { title }), userId }
         },
         { new: true, upsert: true }
       );
@@ -95,14 +95,11 @@ router.post("/", verifyToken, async (req, res) => {
 router.get('/', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const user = await userModel.findById(userId).populate({
-      path: 'chatSessions',
-      select: 'sessionId title lastModified',
-      options: { sort: { lastModified: -1 } }
-    });
+    const sessions = await ChatSession.find({ userId })
+      .select('sessionId title lastModified')
+      .sort({ lastModified: -1 });
 
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user.chatSessions || []);
+    res.json(sessions);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch sessions' });
@@ -142,7 +139,7 @@ router.post('/:sessionId/message', verifyToken, async (req, res) => {
       { sessionId },
       {
         $push: { messages: message },
-        $set: { lastModified: Date.now(), ...(title && { title }) }
+        $set: { lastModified: Date.now(), ...(title && { title }), userId }
       },
       { new: true, upsert: true }
     );
