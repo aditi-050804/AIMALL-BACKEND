@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import UserModel from "../models/User.js";
 import generateTokenAndSetCookies from "../utils/generateTokenAndSetCookies.js";
 import { generateOTP } from "../utils/verifiacitonCode.js";
-import { sendVerificationEmail, sendResetPasswordEmail } from "../utils/Email.js";
+import { sendVerificationEmail, sendResetPasswordEmail, sendResetPasswordOTPEmail, sendPasswordResetSuccessEmail } from "../utils/Email.js";
 import crypto from "crypto";
 import { OAuth2Client } from "google-auth-library";
 import axios from "axios";
@@ -122,32 +122,19 @@ router.post("/forgot-password", async (req, res) => {
       return res.status(404).json({ error: "User not found with this email" });
     }
 
-    // Generate reset token
-    const resetToken = crypto.randomBytes(20).toString("hex");
-
-    // Hash token and set to resetPasswordToken field
-    user.resetPasswordToken = crypto
-      .createHash("sha256")
-      .update(resetToken)
-      .digest("hex");
-
-    // Set expire time (1 hour)
-    user.resetPasswordExpires = Date.now() + 3600000;
+    // Generate OTP
+    const otp = generateOTP();
+    user.resetPasswordOTP = otp;
+    user.resetPasswordOTPExpires = Date.now() + 600000; // 10 minutes
 
     await user.save();
 
-    // Create reset URL
-    // Assuming frontend runs on same domain or configure via env
-    // For development, assuming localhost:5173 or similar.Ideally use env var for FRONTEND_URL
-    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
-    const resetUrl = `${frontendUrl}/reset-password/${resetToken}`;
-
     try {
-      await sendResetPasswordEmail(user.email, user.name, resetUrl);
-      res.status(200).json({ message: "Email Sent Successfully" });
+      await sendResetPasswordOTPEmail(user.email, user.name, otp);
+      res.status(200).json({ message: "OTP Sent Successfully to your Email" });
     } catch (err) {
-      user.resetPasswordToken = undefined;
-      user.resetPasswordExpires = undefined;
+      user.resetPasswordOTP = undefined;
+      user.resetPasswordOTPExpires = undefined;
       await user.save();
       return res.status(500).json({ error: "Email could not be sent" });
     }
@@ -155,6 +142,69 @@ router.post("/forgot-password", async (req, res) => {
   } catch (err) {
     console.error("Forgot Password Error:", err);
     res.status(500).json({ error: "Server error during forgot password" });
+  }
+});
+
+// ====================== VERIFY OTP ONLY =======================
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    const user = await UserModel.findOne({
+      email,
+      resetPasswordOTP: otp,
+      resetPasswordOTPExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: "Invalid or expired OTP" });
+    }
+
+    res.status(200).json({ message: "OTP Verified Successfully" });
+
+  } catch (err) {
+    console.error("Verify OTP Error:", err);
+    res.status(500).json({ error: "Server error during OTP verification" });
+  }
+});
+
+// ====================== VERIFY OTP & RESET PASSWORD =======================
+router.post("/verify-reset-otp", async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    const user = await UserModel.findOne({
+      email,
+      resetPasswordOTP: otp,
+      resetPasswordOTPExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: "Invalid or expired OTP" });
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+
+    // Clear OTP fields
+    user.resetPasswordOTP = undefined;
+    user.resetPasswordOTPExpires = undefined;
+
+    await user.save();
+
+    // Send confirmation email
+    try {
+      await sendPasswordResetSuccessEmail(user.email, user.name);
+    } catch (err) {
+      console.error("Failed to send password reset success email:", err);
+    }
+
+    res.status(200).json({ message: "Password Reset Successfully" });
+
+  } catch (err) {
+    console.error("Verify OTP Reset Error:", err);
+    res.status(500).json({ error: "Server error during password reset" });
   }
 });
 

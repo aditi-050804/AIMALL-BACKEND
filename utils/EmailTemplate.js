@@ -416,6 +416,170 @@ export const Reset_Password_Email_Template = `
                     </body>
                 </html>
                 `;
+export const Reset_Password_OTP_Template = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Password Reset OTP - AI Mall</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 30px auto;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            border: 1px solid #ddd;
+        }
+        .header {
+            background-color: #8b5cf6;
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 26px;
+            font-weight: bold;
+        }
+        .content {
+            padding: 30px 25px;
+            color: #333;
+        }
+        .greeting {
+            font-size: 16px;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .verification-code {
+            display: block;
+            margin: 25px 0;
+            font-size: 32px;
+            color: #8b5cf6;
+            background: #f5f3ff;
+            border: 2px dashed #8b5cf6;
+            padding: 20px;
+            text-align: center;
+            border-radius: 8px;
+            font-weight: bold;
+            letter-spacing: 4px;
+            font-family: 'Courier New', monospace;
+        }
+        .info-text {
+            font-size: 15px;
+            color: #555;
+            margin: 15px 0;
+        }
+        .expiry-notice {
+            background-color: #fff9e6;
+            border-left: 4px solid #ffcc00;
+            padding: 12px 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #666;
+        }
+        .footer {
+            background-color: #f4f4f4;
+            padding: 20px;
+            text-align: center;
+            color: #777;
+            font-size: 12px;
+            border-top: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔐 Password Reset OTP</h1>
+        </div>
+        <div class="content">
+            <p class="greeting">Hello {name},</p>
+            <p class="info-text">
+                We received a request to reset your password for your AI Mall account. Please use the following One-Time Password (OTP) to proceed with your password recovery:
+            </p>
+            <span class="verification-code">{otp}</span>
+            <div class="expiry-notice">
+                ⏱️ This OTP will expire in 10 minutes for security purposes.
+            </div>
+            <p class="info-text">
+                If you did not request a password reset, please ignore this email and ensure your account is secure.
+            </p>
+        </div>
+        <div class="footer">
+            <p><strong>AI-MALL</strong> - Secure & Intelligent AI Solutions</p>
+            <p>&copy; ${new Date().getFullYear()} AI-MALL. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+`;
+
+export const Password_Success_Template = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Password Updated Successfully</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background-color: #f6f9fc; }
+        .container { max-width: 600px; margin: 40px auto; background-color: #ffffff; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); overflow: hidden; border: 1px solid #eef2f6; }
+        .header { background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%); padding: 60px 20px; text-align: center; color: white; }
+        .header h1 { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+        .content { padding: 40px 35px; color: #4b5563; line-height: 1.6; }
+        .greeting { font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 20px; }
+        .success-box { background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 20px; margin: 25px 0; display: flex; align-items: center; gap: 15px; }
+        .success-icon { font-size: 24px; }
+        .success-message { color: #15803d; font-size: 15px; font-weight: 600; margin: 0; }
+        .info-text { font-size: 15px; margin-bottom: 20px; }
+        .security-tips { background-color: #f8fafc; border-radius: 12px; padding: 25px; margin-top: 30px; }
+        .security-tips h3 { margin: 0 0 15px 0; font-size: 16px; color: #1e293b; display: flex; align-items: center; gap: 8px; }
+        .tip-item { font-size: 14px; margin-bottom: 10px; display: flex; align-items: flex-start; gap: 10px; color: #64748b; }
+        .footer { background-color: #f9fafb; padding: 30px; text-align: center; color: #9ca3af; font-size: 13px; border-top: 1px solid #f1f5f9; }
+        .brand { color: #8b5cf6; font-weight: 800; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛡️ Security Notification</h1>
+        </div>
+        <div class="content">
+            <p class="greeting">Hi {name},</p>
+            <p class="info-text">Your password has been successfully updated for your <strong>AI-MALL</strong> account. You can now log in using your new credentials.</p>
+            
+            <div class="success-box">
+                <span class="success-icon">✅</span>
+                <p class="success-message">Update Successful</p>
+            </div>
+
+            <p class="info-text">If you performed this change, you safely ignore this email. No further action is required.</p>
+
+            <div class="security-tips">
+                <h3>⚠️ Security Notice</h3>
+                <div class="tip-item"><span>•</span> If you did not make this change, please contact our support team immediately to secure your account.</div>
+                <div class="tip-item"><span>•</span> We recommend using a unique and strong password for every online account.</div>
+            </div>
+        </div>
+        <div class="footer">
+            <p>Driven by <a href="#" class="brand">AI-MALL</a> — Intelligent Solutions for Tomorrow</p>
+            <p>&copy; ${new Date().getFullYear()} AI-MALL. All rights reserved.</p>
+        </div>
+    </div>
+</body>
+</html>
+`;
 
 
 // Helper function to replace placeholders in templates

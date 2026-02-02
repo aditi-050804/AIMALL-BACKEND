@@ -1,4 +1,4 @@
-import { Verification_Email_Template, Welcome_Email_Template, Reset_Password_Email_Template } from "./EmailTemplate.js";
+import { Verification_Email_Template, Welcome_Email_Template, Reset_Password_Email_Template, Reset_Password_OTP_Template, Password_Success_Template } from "./EmailTemplate.js";
 import { resend, transporter } from "./Email.config.js";
 import { marketPlace } from "../consts.js";
 //  console.log(transporter);
@@ -10,7 +10,7 @@ export const sendVerificationEmail = async (email, name, verificationCode) => {
     console.log(`📧 From: A-Series <${process.env.EMAIL}>`);
 
     const response = await resend.emails.send({
-      from: `A-Series <${process.env.EMAIL}>`,
+      from: `AI-MALL <${process.env.EMAIL}>`,
       to: [email],
       subject: "Verify Your Email",
       html: Verification_Email_Template.replace("{name}", name).replace("{verificationCode}", verificationCode)
@@ -29,7 +29,7 @@ export const sendVerificationEmail = async (email, name, verificationCode) => {
 // WELCOME EMAIL
 export const welcomeEmail = async (name, email) => {
   const info = await resend.emails.send({
-    from: `A-Series <${process.env.EMAIL}>`,
+    from: `AI-MALL <${process.env.EMAIL}>`,
     to: [email],
     subject: `Welcome ${name}`,
     html: Welcome_Email_Template.replace("{name}", name).replace("{dashboardUrl}", marketPlace),
@@ -40,7 +40,7 @@ export const welcomeEmail = async (name, email) => {
 export const sendResetPasswordEmail = async (email, name, resetUrl) => {
   try {
     const response = await resend.emails.send({
-      from: `A-Series <${process.env.EMAIL}>`,
+      from: `AI-MALL <${process.env.EMAIL}>`,
       to: [email],
       subject: "Reset Your Password",
       html: Reset_Password_Email_Template.replace("{name}", name).replace("{resetUrl}", resetUrl)
@@ -48,6 +48,38 @@ export const sendResetPasswordEmail = async (email, name, resetUrl) => {
     console.log("resend_msg", response);
   } catch (error) {
     console.log('Email error', error)
+  }
+}
+
+export const sendResetPasswordOTPEmail = async (email, name, otp) => {
+  try {
+    const response = await resend.emails.send({
+      from: `AI-MALL <${process.env.EMAIL}>`,
+      to: [email],
+      subject: "Password Reset OTP",
+      html: Reset_Password_OTP_Template.replace("{name}", name).replace("{otp}", otp)
+    });
+    console.log(`✅ Reset OTP email sent successfully to ${email}`);
+    return response;
+  } catch (error) {
+    console.error('❌ RESET OTP EMAIL ERROR:', error);
+    throw error;
+  }
+}
+
+export const sendPasswordResetSuccessEmail = async (email, name) => {
+  try {
+    const response = await resend.emails.send({
+      from: `AI-MALL <${process.env.EMAIL}>`,
+      to: [email],
+      subject: "Password Updated Successfully",
+      html: Password_Success_Template.replace("{name}", name)
+    });
+    console.log(`✅ Reset success email sent successfully to ${email}`);
+    return response;
+  } catch (error) {
+    console.error('❌ RESET SUCCESS EMAIL ERROR:', error);
+    throw error;
   }
 }
 
@@ -68,7 +100,7 @@ export const sendContactAdminEmail = async (adminEmail, vendorName, vendorEmail,
     `;
 
     const response = await resend.emails.send({
-      from: `A-Series System <${process.env.EMAIL}>`,
+      from: `AI-MALL System <${process.env.EMAIL}>`,
       to: [adminEmail],
       reply_to: vendorEmail,
       subject: `[Vendor Support] ${subject}`,
