@@ -1,6 +1,6 @@
 const { parentPort, workerData } = require('worker_threads');
 const { RecursiveCharacterTextSplitter } = require("langchain/text_splitter");
-const { GoogleVertexAIEmbeddings } = require("@langchain/community/embeddings/googlevertexai");
+const { VertexAIEmbeddings } = require("@langchain/google-vertexai");
 
 let embeddings = null;
 
@@ -9,7 +9,7 @@ const initializeEmbeddings = async () => {
     if (!embeddings) {
         // Use Vertex AI Embeddings (Cloud-based, no local binaries)
         // console.log("Worker: Initializing Embeddings Model...");
-        embeddings = new GoogleVertexAIEmbeddings({
+        embeddings = new VertexAIEmbeddings({
             model: "text-embedding-004", // Optimize for cost/performance
             maxOutputTokens: 2048,
             location: 'asia-south1',

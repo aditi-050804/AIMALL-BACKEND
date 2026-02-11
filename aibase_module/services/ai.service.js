@@ -1,5 +1,5 @@
 import { MongoDBAtlasVectorSearch } from "@langchain/mongodb";
-import { GoogleVertexAIEmbeddings } from "@langchain/community/embeddings/googlevertexai";
+import { VertexAIEmbeddings } from "@langchain/google-vertexai";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import mongoose from "mongoose";
 import logger from "../utils/logger.js";
@@ -17,7 +17,7 @@ const initializeVectorStore = async () => {
         // Use Vertex AI Embeddings (Cloud-based, no local binaries)
         // Ensure credentials are set via ADC or keyFilename in environment
         logger.info("Initializing Vertex AI Embeddings (text-embedding-004)...");
-        embeddings = new GoogleVertexAIEmbeddings({
+        embeddings = new VertexAIEmbeddings({
             model: "text-embedding-004", // Optimize for cost/performance
             maxOutputTokens: 2048,
             location: 'asia-south1',
