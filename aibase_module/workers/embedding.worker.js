@@ -1,19 +1,35 @@
 const { parentPort, workerData } = require('worker_threads');
 const { RecursiveCharacterTextSplitter } = require("langchain/text_splitter");
-const { VertexAIEmbeddings } = require("@langchain/google-vertexai");
 
 let embeddings = null;
+let VertexAIEmbeddings = null; // Will be loaded dynamically
 
 // Initialize embeddings in the worker thread
 const initializeEmbeddings = async () => {
     if (!embeddings) {
-        // Use Vertex AI Embeddings (Cloud-based, no local binaries)
-        // console.log("Worker: Initializing Embeddings Model...");
-        embeddings = new VertexAIEmbeddings({
-            model: "text-embedding-004", // Optimize for cost/performance
-            maxOutputTokens: 2048,
-            location: 'asia-south1',
-        });
+        // Check if GCP credentials are available
+        const hasGCPCredentials = process.env.GCP_PROJECT_ID;
+
+        if (!hasGCPCredentials) {
+            throw new Error("GCP_PROJECT_ID not available. RAG/Embeddings disabled.");
+        }
+
+        try {
+            // Dynamically import Vertex AI
+            const vertexModule = await import("@langchain/google-vertexai");
+            VertexAIEmbeddings = vertexModule.VertexAIEmbeddings;
+
+            // Use Vertex AI Embeddings (Cloud-based, no local binaries)
+            // console.log("Worker: Initializing Embeddings Model...");
+            embeddings = new VertexAIEmbeddings({
+                model: "text-embedding-004",
+                maxOutputTokens: 2048,
+                location: 'asia-south1',
+                project: process.env.GCP_PROJECT_ID
+            });
+        } catch (error) {
+            throw new Error(`Failed to initialize embeddings: ${error.message}`);
+        }
     }
 };
 

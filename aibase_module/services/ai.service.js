@@ -1,5 +1,4 @@
 import { MongoDBAtlasVectorSearch } from "@langchain/mongodb";
-import { VertexAIEmbeddings } from "@langchain/google-vertexai";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import mongoose from "mongoose";
 import logger from "../utils/logger.js";
@@ -11,18 +10,38 @@ import groqService from './groq.service.js';
 // Real RAG Storage (MongoDB Atlas)
 let vectorStore = null;
 let embeddings = null;
+let VertexAIEmbeddings = null; // Will be loaded dynamically if available
 
 const initializeVectorStore = async () => {
     if (!embeddings) {
-        // Use Vertex AI Embeddings (Cloud-based, no local binaries)
-        // Ensure credentials are set via ADC or keyFilename in environment
-        logger.info("Initializing Vertex AI Embeddings (text-embedding-004)...");
-        embeddings = new VertexAIEmbeddings({
-            model: "text-embedding-004", // Optimize for cost/performance
-            maxOutputTokens: 2048,
-            location: 'asia-south1',
-            // project: process.env.GCP_PROJECT_ID // Optional if ADC is working
-        });
+        // Check if running in environment with GCP credentials
+        const hasGCPCredentials = process.env.GCP_PROJECT_ID;
+
+        if (!hasGCPCredentials) {
+            logger.warn("⚠️ GCP_PROJECT_ID not found. RAG/Embeddings disabled. Chat will use general knowledge only.");
+            return; // Skip vector store initialization
+        }
+
+        try {
+            // Dynamically import Vertex AI only if credentials are available
+            const vertexModule = await import("@langchain/google-vertexai");
+            VertexAIEmbeddings = vertexModule.VertexAIEmbeddings;
+
+            // Use Vertex AI Embeddings (Cloud-based, no local binaries)
+            logger.info("Initializing Vertex AI Embeddings (text-embedding-004)...");
+            embeddings = new VertexAIEmbeddings({
+                model: "text-embedding-004",
+                maxOutputTokens: 2048,
+                location: 'asia-south1',
+                project: process.env.GCP_PROJECT_ID
+            });
+            logger.info("✅ Vertex AI Embeddings initialized successfully");
+        } catch (error) {
+            logger.error(`Failed to initialize Vertex AI Embeddings: ${error.message}`);
+            logger.warn("RAG/Embeddings disabled. Falling back to general knowledge.");
+            embeddings = null; // Ensure it's null
+            return;
+        }
     }
     if (!vectorStore) {
         if (mongoose.connection.readyState !== 1) {
